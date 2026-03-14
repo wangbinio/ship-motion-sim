@@ -17,6 +17,8 @@
 
 namespace {
 
+const std::filesystem::path kSourceDir = SHIP_SIM_SOURCE_DIR;
+
 void require(bool condition, const std::string& message) {
     if (!condition) {
         throw std::runtime_error(message);
@@ -37,6 +39,40 @@ ship_sim::SimulationConfig makeSimulationConfig() {
 
 ship_sim::InitialState makeInitialState() {
     return ship_sim::InitialState {24.0, 120.0, 0.0, 0.0};
+}
+
+std::string readTextFile(const std::filesystem::path& path) {
+    std::ifstream input(path);
+    if (!input) {
+        throw std::runtime_error("failed to open file: " + path.string());
+    }
+
+    std::stringstream buffer;
+    buffer << input.rdbuf();
+    return buffer.str();
+}
+
+void requireFileContentEquals(
+    const std::filesystem::path& actual_path,
+    const std::filesystem::path& expected_path,
+    const std::string& context) {
+    const std::string actual = readTextFile(actual_path);
+    const std::string expected = readTextFile(expected_path);
+    if (actual == expected) {
+        return;
+    }
+
+    std::size_t mismatch_index = 0;
+    while (mismatch_index < actual.size() &&
+           mismatch_index < expected.size() &&
+           actual[mismatch_index] == expected[mismatch_index]) {
+        ++mismatch_index;
+    }
+
+    throw std::runtime_error(
+        context + " baseline mismatch at byte " + std::to_string(mismatch_index) +
+        " actual=" + actual_path.string() +
+        " expected=" + expected_path.string());
 }
 
 void testSpeedResponse() {
@@ -206,6 +242,40 @@ void testSimulationAppWritesOutputFile() {
     std::filesystem::remove_all("/tmp/ship_motion_sim_output");
 }
 
+void testEndToEndBaseline(
+    const std::string& config_name,
+    const std::string& commands_name,
+    const std::string& baseline_name) {
+    const auto config_path = kSourceDir / "tests" / "fixtures" / config_name;
+    const auto commands_path = kSourceDir / "tests" / "fixtures" / commands_name;
+    const auto baseline_path = kSourceDir / "tests" / "baselines" / baseline_name;
+    const auto output_path =
+        std::filesystem::temp_directory_path() / ("ship_motion_sim_" + baseline_name);
+
+    ship_sim::SimulationApp app;
+    const int exit_code = app.run(
+        ship_sim::CliOptions {config_path.string(), commands_path.string(), output_path.string()});
+    require(exit_code == 0, "simulation app should succeed for baseline " + baseline_name);
+    require(std::filesystem::exists(output_path), "baseline output should exist for " + baseline_name);
+
+    requireFileContentEquals(output_path, baseline_path, baseline_name);
+    std::filesystem::remove(output_path);
+}
+
+void testEndToEndStraightBaseline() {
+    testEndToEndBaseline(
+        "baseline_straight_config.json",
+        "baseline_straight_commands.csv",
+        "baseline_straight_expected.csv");
+}
+
+void testEndToEndTurnBaseline() {
+    testEndToEndBaseline(
+        "baseline_turn_config.json",
+        "baseline_turn_commands.csv",
+        "baseline_turn_expected.csv");
+}
+
 }  // namespace
 
 int main() {
@@ -216,6 +286,8 @@ int main() {
         testCommandScheduleOrdering();
         testConfigLoaderAndLogger();
         testSimulationAppWritesOutputFile();
+        testEndToEndStraightBaseline();
+        testEndToEndTurnBaseline();
         std::cout << "All tests passed\n";
         return 0;
     } catch (const std::exception& ex) {

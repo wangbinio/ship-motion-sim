@@ -25,5 +25,9 @@ enable_testing()
 
 add_executable(ship_motion_sim_tests tests/test_main.cpp)
 target_link_libraries(ship_motion_sim_tests PRIVATE ship_motion_sim_lib)
+target_compile_definitions(
+    ship_motion_sim_tests PRIVATE
+    SHIP_SIM_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+)
 
 add_test(NAME ship_motion_sim_tests COMMAND ship_motion_sim_tests)

@@ -194,6 +194,12 @@ ctest --test-dir build --output-on-failure
 - 配置加载
 - 日志输出
 - `--output` 文件写入
+- 两组端到端基线场景输出比对
+
+端到端基线数据位于：
+
+- `tests/fixtures/`
+- `tests/baselines/`
 
 ## 绘图
 
