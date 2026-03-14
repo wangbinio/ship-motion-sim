@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<shipMotionConfig version="2">
+  <simulation dt_s="0.1" duration_s="600.0" earth_radius_m="6378137.0"/>
+  <model nomoto_T_s="10.0" nomoto_K="0.08" speed_tau_s="8.0" rudder_limit_deg="35.0"/>
+  <initialState lat_deg="24.0" lon_deg="120.0" heading_deg="0.0" speed_mps="0.0"/>
+  <analysis default_output_dir="output/runs" auto_plot="true" plot_script="scripts/plot_simulation.py"/>
+  <enginePanels>
+    <panel id="diesel" label="柴油机车令" display_order="0"/>
+    <panel id="fuel" label="燃油机车令" display_order="1"/>
+  </enginePanels>
+  <engineOrders>
+    <order id="diesel_ahead_1" label="两进一" panel_id="diesel" target_speed_mps="1.0" display_order="0"/>
+    <order id="diesel_ahead_2" label="两进二" panel_id="diesel" target_speed_mps="2.0" display_order="1"/>
+    <order id="diesel_ahead_3" label="两进三" panel_id="diesel" target_speed_mps="3.0" display_order="2"/>
+    <order id="diesel_ahead_4" label="两进四" panel_id="diesel" target_speed_mps="4.0" display_order="3"/>
+    <order id="diesel_ahead_5" label="两进五" panel_id="diesel" target_speed_mps="5.0" display_order="4"/>
+    <order id="diesel_ahead_6" label="两进六" panel_id="diesel" target_speed_mps="6.0" display_order="5"/>
+    <order id="diesel_full" label="全速" panel_id="diesel" target_speed_mps="6.5" display_order="6"/>
+    <order id="diesel_astern_3" label="两退三" panel_id="diesel" target_speed_mps="-1.5" display_order="7"/>
+    <order id="diesel_astern_4" label="两退四" panel_id="diesel" target_speed_mps="-2.0" display_order="8"/>
+    <order id="diesel_stop" label="停车" panel_id="diesel" target_speed_mps="0.0" display_order="9"/>
+    <order id="fuel_ahead_6" label="两进六" panel_id="fuel" target_speed_mps="6.0" display_order="0"/>
+    <order id="fuel_ahead_7" label="两进七" panel_id="fuel" target_speed_mps="7.0" display_order="1"/>
+    <order id="fuel_ahead_8" label="两进八" panel_id="fuel" target_speed_mps="8.0" display_order="2"/>
+    <order id="fuel_ahead_9" label="两进九" panel_id="fuel" target_speed_mps="9.0" display_order="3"/>
+    <order id="fuel_ahead_10" label="两进十" panel_id="fuel" target_speed_mps="10.0" display_order="4"/>
+    <order id="fuel_full" label="全速" panel_id="fuel" target_speed_mps="10.5" display_order="5"/>
+    <order id="fuel_astern_4" label="两退四" panel_id="fuel" target_speed_mps="-2.0" display_order="6"/>
+    <order id="fuel_astern_5" label="两退五" panel_id="fuel" target_speed_mps="-2.5" display_order="7"/>
+    <order id="fuel_stop" label="停车" panel_id="fuel" target_speed_mps="0.0" display_order="8"/>
+  </engineOrders>
+  <rudderPresets>
+    <preset id="port_30" label="左30" angle_deg="-30.0" display_order="0"/>
+    <preset id="port_10" label="左10" angle_deg="-10.0" display_order="1"/>
+    <preset id="port_5" label="左5" angle_deg="-5.0" display_order="2"/>
+    <preset id="midship" label="舵正" angle_deg="0.0" display_order="3"/>
+    <preset id="starboard_5" label="右5" angle_deg="5.0" display_order="4"/>
+    <preset id="starboard_10" label="右10" angle_deg="10.0" display_order="5"/>
+    <preset id="starboard_30" label="右30" angle_deg="30.0" display_order="6"/>
+  </rudderPresets>
+</shipMotionConfig>

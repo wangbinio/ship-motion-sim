@@ -2,534 +2,363 @@
 
 ## 1. 文档目的
 
-本文档描述当前 `ship-motion-sim` 项目的实际架构状态，而不是目标态架构。重点是回答三个问题：
+本文档描述当前仓库在阶段 2 实施后的实际架构状态，重点回答：
 
-- 现在系统由哪些模块组成
-- 数据和控制如何在系统内流动
-- 以当前实现为基础，下一步应该优先补什么
+- 系统现在有哪些可执行入口
+- 仿真内核、配置、GUI 和分析链路如何分层
+- 数据与控制如何在系统内流动
 
-本文档基于仓库当前代码与脚本实现编写，适合作为后续演进和重构基线。
+本文档描述的是当前实现，不是未来理想态。
 
 ## 2. 当前系统定位
 
-当前项目是一个最小可运行的舰艇二维平面运动仿真原型，能力边界如下：
+当前项目是一个单舰二维平面机动仿真原型，特点是：
 
-- 支持基于 JSON 配置初始化模型参数与初始状态
-- 支持从 CSV 事件表加载舵令和车令
-- 使用固定步长显式欧拉法推进仿真
-- 使用一阶 Nomoto 模型描述航向响应
-- 使用一阶速度响应模型描述航速变化
-- 将局部平面位移换算回经纬度
-- 输出 CSV 状态日志
-- 提供 Python 可视化脚本用于离线结果分析
+- 核心数值模型保持简单
+- 既支持 GUI 实时交互，也支持 CLI 批量回放
+- 统一输出分析产物
+- 继续强调可验证性而非高保真
 
-它还不是通用仿真平台，当前更接近“单舰、离线、回放式”的计算内核加工具链。
+它仍然不是通用仿真平台，当前最准确的定义是：
 
-## 3. 架构总览
+“一个可交互、可回放、可出图的舰艇机动仿真原型工程”。
 
-当前代码可按职责分成 6 层：
+## 3. 入口与产物
 
-1. 入口层
-   `src/main.cpp`
+当前 CMake 生成 4 个主要二进制：
 
-2. 应用编排层
-   `src/app/simulation_app.*`
+- `ship_motion_sim`
+- `ship_motion_sim_gui`
+- `ship_motion_sim_tests`
 
-3. 领域模型层
-   `src/model/simple_nomoto_ship_model.*`
+其中：
 
-4. 输入解析与调度层
-   `src/config/config_loader.*`
-   `src/scenario/command_schedule.*`
+- `ship_motion_sim` 是 CLI 入口
+- `ship_motion_sim_gui` 是 Qt Widgets 图形界面
+- `ship_motion_sim_tests` 是统一测试入口
 
-5. 基础设施层
-   `src/logger/state_logger.*`
-   `src/common/*`
+标准分析产物为：
 
-6. 工具与分析层
-   `scripts/plot_simulation.py`
+- `state.csv`
+- `commands.csv`
+- `summary.txt`
+- `plot.png`
 
-从依赖方向上看，当前依赖关系是单向的：
+## 4. 模块分层
 
-```text
-main
-  -> SimulationApp
-      -> ConfigLoader
-      -> CommandSchedule
-      -> SimpleNomotoShipModel
-      -> StateLogger
-      -> common/*
+当前代码可以概括为 6 层。
 
-scripts/plot_simulation.py
-  -> 仿真输出 CSV
-  -> 命令 CSV
-```
+### 4.1 入口层
 
-这个依赖方向是健康的：应用层编排流程，模型层不依赖 CLI、文件或绘图。
+文件：
 
-## 4. 目录与职责
-
-### 4.1 `src/main.cpp`
+- `src/main.cpp`
+- `src/gui_main.cpp`
 
 职责：
 
-- 解析命令行
-- 调用 `SimulationApp`
-- 捕获异常并返回退出码
+- 创建 CLI 或 GUI 应用
+- 解析最外层参数
+- 捕获异常并转成退出码
 
-说明：
+### 4.2 应用编排层
 
-- 当前入口非常薄，符合预期
-- 这是正确的边界，后续不应把业务逻辑塞回 `main`
+文件：
 
-### 4.2 `src/app`
-
-核心文件：
-
-- `simulation_app.h`
-- `simulation_app.cpp`
+- `src/app/simulation_app.*`
+- `src/app/batch_simulation_runner.*`
+- `src/app/realtime_simulation_controller.*`
+- `src/app/plot_runner.*`
+- `src/app/simulation_session.*`
 
 职责：
 
-- 解析 CLI 选项
-- 装配配置、命令表、模型与日志器
-- 驱动仿真主循环
-- 处理运行期错误
-- 处理文件输出目录创建
+- 统一管理一次仿真会话
+- 为 CLI 驱动批量运行
+- 为 GUI 驱动实时运行
+- 导出产物
+- 调用 Python 绘图脚本
 
-这是当前系统的 orchestration 层，也是最接近用例层的地方。
+这里是阶段 2 最大的新增层。
 
-### 4.3 `src/model`
+### 4.3 领域模型层
 
-核心文件：
+文件：
 
-- `simple_nomoto_ship_model.h`
-- `simple_nomoto_ship_model.cpp`
+- `src/model/simple_nomoto_ship_model.*`
 
 职责：
 
 - 保存船舶内部状态
-- 保存当前控制量
-- 执行单步状态推进
-- 输出对外可见状态
+- 响应当前控制量
+- 推进一步
+- 输出对外状态快照
 
-这是当前系统最重要的领域内核。
+这一层仍然是数值核心，阶段 2 没有推翻它。
 
-### 4.4 `src/config`
+### 4.4 输入解析与调度层
 
-核心文件：
+文件：
 
-- `config_loader.h`
-- `config_loader.cpp`
-
-职责：
-
-- 读取 JSON 配置
-- 解析仿真参数、初始状态、车令映射
-- 做启动前配置合法性校验
-
-当前为了减少依赖，项目内置了一个最小 JSON 解析器而没有引入第三方库。
-
-### 4.5 `src/scenario`
-
-核心文件：
-
-- `command_schedule.h`
-- `command_schedule.cpp`
+- `src/config/xml_config_loader.*`
+- `src/scenario/csv_command_io.*`
+- `src/scenario/command_schedule.*`
 
 职责：
 
-- 读取命令事件 CSV
-- 解析事件类型与值
-- 按时间排序
-- 在仿真时钟推进时按需吐出“当前应生效的事件”
+- 解析 XML 配置
+- 解析与写回命令 CSV
+- 按仿真时间调度离散命令
 
-这一层把“离散事件控制”从模型里分离出来，是当前架构中很重要的一个隔离点。
+### 4.5 基础设施层
 
-### 4.6 `src/logger`
+文件：
 
-核心文件：
-
-- `state_logger.h`
-- `state_logger.cpp`
+- `src/logger/state_logger.*`
+- `src/common/*`
 
 职责：
 
-- 输出 CSV 表头
-- 输出每一步状态快照
+- 写状态 CSV
+- 保存公共数据结构
+- 提供角度与经纬度换算工具
 
-当前实现是一个极简输出器，后续如果增加 JSON、二进制记录或多路输出，这里会成为扩展点。
+### 4.6 表现层
 
-### 4.7 `src/common`
+文件：
 
-核心文件：
-
-- `types.h`
-- `math_utils.h`
-- `simple_json.h`
-- `simple_json.cpp`
+- `src/gui/main_window.*`
+- `src/gui/track_view_widget.*`
 
 职责：
 
-- 承载跨模块共享的数据结构
-- 提供角度换算、角度归一化、局部平面到经纬度换算
-- 提供最小 JSON 解析能力
+- 呈现 Qt 主界面
+- 显示当前状态
+- 构建舵令与车令面板
+- 绘制实时轨迹图
 
-这里目前功能较杂，但体量还小，可接受。
+## 5. 核心对象关系
 
-### 4.8 `scripts`
-
-核心文件：
-
-- `plot_simulation.py`
-
-职责：
-
-- 读取仿真日志 CSV
-- 读取命令 CSV
-- 绘制轨迹、航向、航速、转首角速度和命令时间线
-- 提供离线简易地图底图风格的轨迹图
-
-它是分析工具，不属于仿真运行时主路径。
-
-## 5. 领域模型与状态设计
-
-当前领域对象以 `SimpleNomotoShipModel` 为中心。
-
-### 5.1 对外状态
-
-当前对外输出状态为：
-
-- `time_s`
-- `lat_deg`
-- `lon_deg`
-- `heading_deg`
-- `speed_mps`
-- `yaw_rate_deg_s`
-
-### 5.2 内部状态
-
-当前模型内部维护：
-
-- `lat0_deg`
-- `lon0_deg`
-- `x_m`
-- `y_m`
-- `heading_rad`
-- `speed_mps`
-- `yaw_rate_rps`
-- `rudder_cmd_rad`
-- `u_cmd_mps`
-
-这套状态设计总体合理，原因是：
-
-- 位置积分在局部平面完成，数值上比直接积纬经度更清晰
-- 航向使用弧度，避免三角函数接口反复转换
-- 舵令和车令以当前控制量形式常驻，符合离散事件控制模型
-
-### 5.3 当前模型方程
-
-航向：
+当前依赖关系如下：
 
 ```text
-r_dot = (K * delta - r) / T
-psi_dot = r
+CLI Main
+  -> SimulationApp
+      -> XmlConfigLoader
+      -> BatchSimulationRunner
+          -> CsvCommandReader
+          -> CommandSchedule
+          -> SimulationSession
+              -> SimpleNomotoShipModel
+          -> StateLogger
+          -> PlotRunner
+
+GUI Main
+  -> MainWindow
+      -> RealtimeSimulationController
+          -> SimulationSession
+              -> SimpleNomotoShipModel
+          -> StateLogger
+          -> CsvCommandWriter
+          -> PlotRunner
+      -> TrackViewWidget
 ```
 
-速度：
+这个依赖方向是健康的：
+
+- GUI 不直接操作模型
+- CLI 不再自己管理时间推进细节
+- 模型仍然不依赖 Qt Widgets
+
+## 6. 核心数据模型
+
+阶段 2 后，公共数据结构主要分为 4 类。
+
+### 6.1 仿真参数
+
+- `SimulationConfig`
+- `InitialState`
+- `ShipState`
+
+### 6.2 命令数据
+
+- `CommandType`
+- `CommandEvent`
+- `CommandEvents`
+
+### 6.3 控制面板定义
+
+- `EnginePanelDefinition`
+- `EngineOrderDefinition`
+- `RudderPresetDefinition`
+
+这组结构是阶段 2 为 GUI 引入的关键抽象，用来表达 `control.png` 中的命令布局。
+
+### 6.4 会话与产物定义
+
+- `SessionConfig`
+- `ArtifactPaths`
+- `BatchRunOptions`
+- `BatchRunResult`
+
+## 7. 会话层设计
+
+`SimulationSession` 是阶段 2 的核心中枢。
+
+它负责：
+
+- 持有 `SimpleNomotoShipModel`
+- 维护当前仿真时刻
+- 应用舵令/车令
+- 记录状态历史
+- 记录命令历史
+
+这意味着：
+
+- CLI 与 GUI 共用一套会话语义
+- 端到端测试也直接围绕同一对象建模
+
+## 8. CLI 数据流
+
+当前 CLI 批量回放的数据流为：
 
 ```text
-u_dot = (u_cmd - u) / tau_u
+XML Config + Command CSV
+  -> XmlConfigLoader / CsvCommandReader
+  -> BatchSimulationRunner
+  -> CommandSchedule
+  -> SimulationSession.step(dt)
+  -> StateLogger
+  -> commands.csv / summary.txt / plot.png
 ```
 
-位置：
+特点：
+
+- 保留离散事件控制语义
+- 保留固定步长积分
+- 新增统一产物目录能力
+
+## 9. GUI 数据流
+
+当前 GUI 实时交互的数据流为：
 
 ```text
-x_dot = u * cos(psi)
-y_dot = u * sin(psi)
+MainWindow
+  -> 用户点击开始
+  -> RealtimeSimulationController.start(config)
+  -> QTimer + QElapsedTimer
+  -> SimulationSession.step(dt)
+  -> stateAdvanced signal
+  -> MainWindow 更新标签和轨迹图
+  -> 用户点击舵令/车令按钮
+  -> controller.applyCommand(...)
+  -> 命令立即生效并记录历史
+  -> 停止后导出产物并可选自动绘图
 ```
 
-坐标换算：
+这里采用的是：
 
-```text
-lat = lat0 + y / R
-lon = lon0 + x / (R * cos(lat0))
-```
+- 单线程
+- 固定积分步长
+- 墙钟时间累积器
 
-### 5.4 当前模型边界
+这样避免了把 UI 刷新频率和模型步长直接绑定。
 
-当前模型没有包含：
+## 10. 配置系统
 
-- 舵机动态
-- 转向与航速耦合
-- 外部扰动
-- 船体横荡
-- 高保真地理投影
+阶段 2 已从 JSON 迁到 XML。
 
-因此当前模型适合做趋势验证，不适合做工程精度承诺。
-
-## 6. 运行时数据流
-
-当前单次 CLI 仿真运行的数据流如下：
-
-```text
-命令行参数
-  -> parseCliOptions
-  -> ConfigLoader.loadFromFile(JSON)
-  -> CommandSchedule.loadFromCsvFile(CSV)
-  -> 初始化 SimpleNomotoShipModel
-  -> 初始化 StateLogger
-  -> for sim_time in [0, duration]:
-         从 CommandSchedule 取出 time<=当前时刻 的事件
-         逐条应用到模型控制量
-         模型 step(dt)
-         输出 ShipState
-  -> 生成 CSV 日志
-```
-
-这个流程有两个关键特征：
-
-### 6.1 事件驱动控制
-
-控制命令不是周期下发，而是事件驱动：
-
-- CSV 里出现的时刻触发命令变更
-- 两次命令之间保持上一次控制量
-
-### 6.2 固定步长积分
-
-仿真主时钟是固定步长 `dt`：
-
-- 命令在离散步边界进入系统
-- 状态在每个步长推进一次
-- 日志每个步长输出一次
-
-这意味着当前系统天然适合离线回放，不适合高频异步外部输入。
-
-## 7. 命令调度语义
-
-当前 `CommandSchedule` 采用以下语义：
-
-- 所有事件先按 `time_s` 升序排序
-- 相同时间的事件保留输入顺序
-- 在仿真循环中，取出 `time <= sim_time` 的所有事件
-
-这使得以下行为成立：
-
-- 同一时刻可以先改车令再改舵令
-- 同一时刻的多条命令不会丢失
-- `t=5.0` 的命令作用于从 `5.0` 开始的积分区间
-
-当前这套语义简单清楚，但仍有两个限制：
-
-- 不能表达“步内半时刻”事件
-- 不能表达带持续时长的控制段，只能通过成对事件手工编码
-
-## 8. 配置与输入设计评价
-
-当前输入设计拆成两类：
-
-### 8.1 静态配置
-
-JSON 负责：
+当前 XML 配置承载：
 
 - 仿真参数
+- 模型参数
 - 初始状态
-- 车令映射表
+- 分析输出默认值
+- 车令面板定义
+- 车令定义
+- 舵令预设
 
-优点：
+运行时不再依赖自定义 JSON 解析器。
 
-- 结构清晰
-- 便于扩展更多参数
+## 11. 分析链路
 
-当前问题：
+阶段 2 之前，绘图脚本是手工调用的离线工具。
 
-- 配置字段缺失时依赖 `.at()` 抛异常，错误信息不够友好
-- 未区分用户配置错误和内部解析错误
+阶段 2 之后：
 
-### 8.2 动态命令
+- CLI 可自动调用绘图脚本
+- GUI 停止后也可自动调用同一脚本
+- 两条路径共享同一产物协议
 
-CSV 负责：
+`PlotRunner` 当前通过 `QProcess` 调起：
 
-- 控制时刻
-- 控制类型
-- 控制值
+```text
+python3 scripts/plot_simulation.py --input state.csv --commands commands.csv --output plot.png
+```
 
-优点：
+这让 GUI 与 CLI 的结果图保持一致。
 
-- 适合快速编辑和回放
-- 与日志 CSV 保持一致风格
+## 12. 测试结构
 
-当前问题：
+当前测试仍集中在 `tests/test_main.cpp`，但覆盖范围已经扩展到：
 
-- 字段类型全靠字符串解析，类型约束弱
-- 没有 schema
-- 没有注释、分段、标签能力
+- 模型行为
+- CSV 命令读取与调度
+- XML 配置读写
+- 会话历史记录
+- 批量产物生成
+- CLI 输出
+- 实时控制器推进
+- GUI 构造烟雾测试
+- 两组端到端基线
 
-## 9. 可视化工具链
+虽然测试文件尚未拆分，但验证边界已经覆盖到阶段 2 的核心路径。
 
-当前 Python 绘图脚本承担“分析端”职责，而不参与主程序运行。
+## 13. 当前架构优点
 
-### 9.1 当前能力
+### 13.1 内核复用成功
 
-- 绘制轨迹折线
-- 绘制时间序列曲线
-- 标注命令事件
-- 生成离线简易地图底图风格视图
+GUI 与 CLI 没有分叉出两套模型逻辑，`SimulationSession` 让数值语义保持一致。
 
-### 9.2 当前优点
+### 13.2 输入适配层清晰
 
-- 不引入 GIS 重依赖
-- 输出结果直观
-- 使用门槛低
+XML 配置、CSV 命令、状态 CSV、绘图脚本现在边界更明确，文件协议比阶段 1 更统一。
 
-### 9.3 当前缺点
+### 13.3 GUI 依赖被限制在表现层
 
-- 不是严格地理地图
-- 没有统一的样式模板和报告导出流程
-- 对日志异常、缺行、格式漂移的容错能力有限
+Qt Widgets 没有侵入 `SimpleNomotoShipModel`，测试仍可以在不启动完整 GUI 的情况下验证主要行为。
 
-## 10. 测试架构
+## 14. 当前不足
 
-当前测试集中在 `tests/test_main.cpp`，属于轻量级自建测试程序。
+### 14.1 控制面板样式仍然是工程化复刻
 
-覆盖范围包括：
+当前 GUI 已复刻 `control.png` 的命令结构，但没有逐像素复刻原始视觉样式。
 
-- 航速响应
-- 航向响应
-- 地理换算
-- 命令调度
-- 配置加载
-- CSV 输出
-- `--output` 文件写入
+### 14.2 车令速度仍是约定值
 
-### 当前优点
+图片只定义了车令结构，没有给出真实标定速度，因此 XML 中的 `target_speed_mps` 目前仍是工程默认值。
 
-- 没有额外测试框架依赖
-- 构建和执行都很简单
+### 14.3 测试文件尚未模块化
 
-### 当前缺点
+测试覆盖面已经变宽，但 `tests/test_main.cpp` 仍是单文件，后续继续扩展时应拆分。
 
-- 所有测试写在一个文件中，扩展性差
-- 失败信息和用例组织较弱
-- 缺少端到端结果基线比对
-- 缺少异常路径系统性覆盖
+## 15. 后续建议
 
-对于当前规模，这样还能接受；但下一阶段如果加功能，测试体系必须升级。
+在当前架构基础上，下一步更适合继续做：
 
-## 11. 当前架构优点
+1. 把测试按 `config / session / batch / gui` 拆分
+2. 为 GUI 增加更明确的运行状态和命令历史面板
+3. 为 `summary.txt` 增加更完整的会话元数据
+4. 如果需要更高真实性，再引入舵机动态或速度相关参数
 
-基于当前实现，比较明确的优点有：
+## 16. 总结
 
-### 11.1 分层基本正确
+阶段 2 完成后的架构可以概括为：
 
-模型、配置、调度、日志和脚本没有严重耦合，后续重构成本可控。
+- 一个保持简洁的仿真内核
+- 一个统一的会话层连接 CLI 和 GUI
+- 一个 XML + CSV 的输入输出适配层
+- 一个可自动出图的分析链路
+- 一个基于 Qt Widgets 的实时操作界面
 
-### 11.2 内核足够小
-
-领域模型集中在一个类中，便于确认数值行为。
-
-### 11.3 工具链已形成闭环
-
-当前已经具备：
-
-- 输入配置
-- 运行仿真
-- 生成日志
-- 绘制结果
-
-这意味着已经从“代码片段”进入“可操作工程”的状态。
-
-## 12. 当前架构主要问题
-
-### 12.1 配置与错误处理还偏脆弱
-
-最小 JSON 解析器够用，但：
-
-- 报错上下文有限
-- 不支持更复杂格式
-- 不具备成熟库的健壮性
-
-### 12.2 模型与场景能力过窄
-
-现在只能做单舰、离线、事件回放，没有更高层场景抽象。
-
-### 12.3 测试策略还不够工程化
-
-当前测试更像 smoke test + 数学趋势验证，而不是稳定的回归体系。
-
-### 12.4 可视化与主程序松耦合但无统一产物协议
-
-虽然 CSV 是个简单协议，但没有版本号、元数据和 schema，后期可能出兼容性问题。
-
-## 13. 建议的下一阶段演进顺序
-
-基于当前项目状态，我建议按以下顺序推进。
-
-### 第一优先级：提高正确性与可验证性
-
-1. 引入端到端基线测试
-   为典型场景保存期望输出片段或统计特征，防止数值行为回归。
-
-2. 把测试拆分成多文件
-   至少按 `model / config / scenario / app` 分组。
-
-3. 增加异常路径测试
-   覆盖坏配置、坏命令、极端纬度、非法参数、空文件等情况。
-
-### 第二优先级：提高模型可信度
-
-4. 增加舵机一阶动态
-   这是最小但最有效的真实性提升。
-
-5. 让 `K`、`T` 与航速产生关联
-   当前固定参数过于理想化。
-
-6. 补一个更明确的单位与数值约束层
-   至少在配置解析阶段更严格地检查范围。
-
-### 第三优先级：提高工程可维护性
-
-7. 以成熟库替换自定义 JSON 解析器
-   优先考虑单头文件或轻量方案。
-
-8. 为输出日志增加元数据
-   例如配置摘要、版本号、场景名、生成时间。
-
-9. 拆分绘图脚本为“读取层 + 绘图层”
-   便于后续增加地图类型或报告模板。
-
-### 第四优先级：扩展使用场景
-
-10. 增加多种场景模板
-    例如直航、定舵转向、回舵、倒车、组合操纵。
-
-11. 增加真实地图底图能力
-    可选接在线瓦片或离线自然地理底图。
-
-12. 逐步向 3-DOF 扩展
-    这应当在验证体系和参数管理成熟后再做。
-
-## 14. 提交基线建议
-
-当前版本已经具备首个基线提交条件，因为它已经同时满足：
-
-- 可构建
-- 可运行
-- 可测试
-- 可视化
-- 有基础文档
-
-适合作为项目 `v0` 或初始原型提交。
-
-## 15. 总结
-
-当前 `ship-motion-sim` 的架构特征可以概括为：
-
-- 一个小而清晰的仿真内核
-- 一个薄应用层负责装配
-- 一个事件调度层负责离线控制
-- 一个轻量日志层负责输出
-- 一个独立 Python 工具负责可视化
-
-这套架构的最大优点是简单和可控，最大短板是验证深度与模型真实性不足。下一阶段应优先把“正确性证明能力”和“模型可信度”补起来，而不是急着扩大功能面。
+它已经从“只能离线回放的 CLI 原型”演进为“可实时交互、可批量分析、可验证回归”的工程原型。 

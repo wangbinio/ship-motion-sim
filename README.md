@@ -1,21 +1,24 @@
 # Ship Motion Sim
 
-一个最小可运行的舰艇二维平面机动仿真器，基于：
+一个基于一阶 Nomoto 航向模型和一阶速度响应模型的单舰二维平面机动仿真器，当前同时支持：
 
-- 一阶 Nomoto 航向模型
-- 一阶速度响应模型
-- 局部切平面位置积分
-- 经纬度日志输出
+- Qt 实时交互界面
+- XML 配置加载与保存
+- CLI 批量回放
+- CSV 日志输出
+- Python 脚本自动绘图
 
-项目目标不是高保真船舶操纵仿真，而是提供一个简单、稳定、可测试的 CLI 原型。
+项目目标仍然是一个简单、稳定、可测试的工程原型，而不是高保真操纵仿真平台。
 
-## 功能
+## 当前能力
 
-- 从 JSON 配置加载初始状态和模型参数
-- 从 CSV 命令表加载舵令与车令
-- 以固定时间步推进状态
-- 输出 `time_s, lat_deg, lon_deg, heading_deg, speed_mps, yaw_rate_deg_s`
-- 支持通过 `--output` 将结果写入文件
+- 从 XML 配置加载模型参数、初始状态、舵令预设和车令面板
+- GUI 中实时输入初始经纬度、航向和航速
+- GUI 中通过舵令按钮和两组车令面板控制仿真
+- CLI 中从 CSV 命令表批量回放场景
+- 输出状态 `time_s, lat_deg, lon_deg, heading_deg, speed_mps, yaw_rate_deg_s`
+- 导出 `state.csv`、`commands.csv`、`summary.txt`
+- 可选自动调用 `scripts/plot_simulation.py` 生成 `plot.png`
 
 ## 模型
 
@@ -39,22 +42,7 @@ x_dot = u * cos(psi)
 y_dot = u * sin(psi)
 ```
 
-经纬度换算采用局部切平面近似，适用于局部小范围航迹。
-
-## 目录
-
-```text
-.
-├─ CMakeLists.txt
-├─ config/
-│  ├─ default_config.json
-│  └─ sample_commands.csv
-├─ src/
-├─ tests/
-├─ draft.md
-├─ final.md
-└─ README.md
-```
+经纬度换算仍然采用局部切平面近似，适用于局部小范围轨迹。
 
 ## 构建
 
@@ -62,6 +50,15 @@ y_dot = u * sin(psi)
 
 - CMake >= 3.16
 - 支持 C++17 的编译器
+- Qt 5.12+
+- Python 3
+- 若需要自动绘图，还需要 `matplotlib`
+
+当前工程默认按以下路径查找 Qt：
+
+```cmake
+/home/sun/Qt5.12.12/5.12.12/gcc_64
+```
 
 构建命令：
 
@@ -73,109 +70,126 @@ cmake --build build
 生成的可执行文件：
 
 - `build/ship_motion_sim`
+- `build/ship_motion_sim_gui`
 - `build/ship_motion_sim_tests`
 
-## 运行
+## 配置文件
 
-标准输出运行：
+默认配置：
+
+- `config/default_config.xml`
+- `config/three_minute_config.xml`
+
+XML 结构包含：
+
+- `simulation`
+- `model`
+- `initialState`
+- `analysis`
+- `enginePanels`
+- `engineOrders`
+- `rudderPresets`
+
+默认控制面板与 `control.png` 一致：
+
+- 舵令：`左30/左10/左5/舵正/右5/右10/右30`
+- 车令：分为“柴油机车令”和“燃油机车令”两组
+
+## CLI 用法
+
+最小运行：
 
 ```bash
 ./build/ship_motion_sim \
-  --config config/default_config.json \
-  --commands config/sample_commands.csv
-```
-
-写入文件运行：
-
-```bash
-./build/ship_motion_sim \
-  --config config/default_config.json \
+  --config config/default_config.xml \
   --commands config/sample_commands.csv \
-  --output output/sim_run.csv
+  --output output/manual/state.csv \
+  --no-plot
 ```
 
-说明：
-
-- 如果 `--output` 的父目录不存在，程序会自动创建。
-- 如果不传 `--output`，CSV 会写到标准输出。
-
-## 3 分钟示例场景
-
-仓库内提供了一组 180 秒场景文件：
-
-- `config/three_minute_config.json`
-- `config/three_minute_commands.csv`
-
-命令表按 20 秒间隔安排事件，混合了三类控制：
-
-- 纯车令
-- 纯舵令
-- 同一时刻同时下发车令和舵令的组合命令
-
-生成日志：
+生成完整产物目录：
 
 ```bash
 ./build/ship_motion_sim \
-  --config config/three_minute_config.json \
-  --commands config/three_minute_commands.csv \
-  --output output/scenarios/three_minute_run.csv
+  --config config/default_config.xml \
+  --commands config/sample_commands.csv \
+  --artifacts-dir output/runs/manual_cli
 ```
 
-## 输入文件
+支持参数：
 
-### 配置文件
+- `--config <path>`：XML 配置路径
+- `--commands <path>`：命令 CSV 路径
+- `--output <path>`：状态 CSV 输出路径
+- `--artifacts-dir <dir>`：统一产物目录
+- `--plot-output <path>`：自定义图片输出路径
+- `--no-plot`：禁用自动绘图
 
-示例见 `config/default_config.json`。
-
-关键字段：
-
-- `simulation.dt_s`
-- `simulation.duration_s`
-- `simulation.earth_radius_m`
-- `simulation.nomoto_T_s`
-- `simulation.nomoto_K`
-- `simulation.speed_tau_s`
-- `simulation.rudder_limit_deg`
-- `initial_state.lat_deg`
-- `initial_state.lon_deg`
-- `initial_state.heading_deg`
-- `initial_state.speed_mps`
-- `engine_order_map`
-
-### 命令文件
-
-示例见 `config/sample_commands.csv`。
-
-CSV 格式：
+CLI 的命令 CSV 格式：
 
 ```text
 time_s,type,value
-0.0,engine,ahead3
+0.0,engine,diesel_ahead_3
 5.0,rudder,10
 15.0,rudder,0
-20.0,engine,full
+20.0,engine,diesel_full
 ```
 
 说明：
 
-- `type=engine` 时，`value` 是车令字符串
+- `type=engine` 时，`value` 是 XML 中定义的车令 `id`
 - `type=rudder` 时，`value` 是舵角，单位为度
 
-## 输出格式
+## GUI 用法
 
-输出 CSV 表头如下：
+启动 GUI：
 
-```text
-time_s,lat_deg,lon_deg,heading_deg,speed_mps,yaw_rate_deg_s
+```bash
+./build/ship_motion_sim_gui --config config/default_config.xml
 ```
 
-示例：
+使用流程：
+
+1. 加载 XML 配置
+2. 修改初始经纬度、航向、航速
+3. 点击“开始”
+4. 使用舵令和车令按钮实时控制
+5. 点击“停止”后自动导出本次会话产物
+
+GUI 默认把每次会话输出到 XML 中 `analysis.default_output_dir` 指定的目录下，并按时间戳创建子目录。
+
+## 产物结构
+
+CLI 使用 `--artifacts-dir`，或者 GUI 停止后，都会产出：
 
 ```text
-0.000000,24.000000,120.000000,0.000000,0.000000,0.000000
-0.100000,24.000000,120.000000,0.000000,0.037500,0.000000
-0.200000,24.000000,120.000000,0.000000,0.074531,0.000000
+<artifacts-dir>/
+  ├─ state.csv
+  ├─ commands.csv
+  ├─ summary.txt
+  └─ plot.png
 ```
+
+若关闭自动绘图，则不会生成 `plot.png`。
+
+## 绘图
+
+绘图脚本仍然使用：
+
+```bash
+python3 scripts/plot_simulation.py \
+  --input output/runs/manual_cli/state.csv \
+  --commands output/runs/manual_cli/commands.csv \
+  --output output/runs/manual_cli/plot.png
+```
+
+脚本会生成包含以下信息的总览图：
+
+- 轨迹图
+- 航向曲线
+- 航速曲线
+- 转首角速度曲线
+- 命令时间线
 
 ## 测试
 
@@ -187,64 +201,22 @@ ctest --test-dir build --output-on-failure
 
 当前测试覆盖：
 
-- 速度响应
-- 航向响应
-- 地理坐标换算
-- 命令调度顺序
-- 配置加载
-- 日志输出
-- `--output` 文件写入
-- 两组端到端基线场景输出比对
-
-端到端基线数据位于：
-
-- `tests/fixtures/`
-- `tests/baselines/`
-
-## 绘图
-
-系统中如果已有 `matplotlib`，可以直接运行：
-
-```bash
-mkdir -p .cache/matplotlib
-  MPLCONFIGDIR=.cache/matplotlib python3 scripts/plot_simulation.py \
-    --input output/scenarios/three_minute_run.csv \
-    --commands config/three_minute_commands.csv \
-    --output output/plots/three_minute_run_map.png \
-    --title "Three Minute Ship Motion Scenario"
-```
-
-脚本会生成 5 个图层：
-
-- 轨迹图
-- 航向曲线
-- 航速曲线
-- 转首角速度曲线
-- 命令时间线
-
-其中首个轨迹图层现在采用离线“简易地图底图”样式：
-
-- 浅色海图风格背景
-- 经纬网格
-- 起点与终点标记
-- 轨迹方向箭头
-- 命令触发点标记
-
-说明：
-
-- 这不是在线瓦片地图，也不依赖网络服务。
-- 它本质上是在经纬度坐标上叠加简化地图样式，适合快速查看轨迹走势。
+- 模型速度/航向响应
+- 经纬度换算
+- CSV 命令读取与调度顺序
+- XML 配置读写
+- 会话历史记录
+- 批量运行器产物输出
+- CLI 输出
+- 实时控制器推进
+- GUI 构造烟雾测试
+- 两组端到端基线场景
 
 ## 已知边界
 
+- 仍然只支持单舰
 - 不包含 3-DOF 或 MMG 模型
 - 不包含风浪流扰动
 - 不包含舵机速率限制
-- 不适用于大范围高精度地理导航计算
-
-## 后续建议
-
-- 增加舵机一阶动态
-- 将 `K`、`T` 扩展为随航速变化
-- 增加环境扰动
-- 增加更完整的集成测试和结果基线
+- GUI 轨迹图是自绘简图，不是在线地图
+- `control.png` 已确定控制结构，但不同车令的目标速度映射仍然属于工程约定值，不是实船标定值

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<shipMotionConfig version="2">
+  <simulation dt_s="0.1" duration_s="2.0" earth_radius_m="6378137.0"/>
+  <model nomoto_T_s="10.0" nomoto_K="0.08" speed_tau_s="8.0" rudder_limit_deg="35.0"/>
+  <initialState lat_deg="24.0" lon_deg="120.0" heading_deg="0.0" speed_mps="0.0"/>
+  <analysis default_output_dir="output/tests" auto_plot="false" plot_script="scripts/plot_simulation.py"/>
+  <enginePanels>
+    <panel id="default" label="Default" display_order="0"/>
+  </enginePanels>
+  <engineOrders>
+    <order id="stop" label="Stop" panel_id="default" target_speed_mps="0.0" display_order="0"/>
+    <order id="ahead3" label="Ahead 3" panel_id="default" target_speed_mps="3.0" display_order="1"/>
+  </engineOrders>
+  <rudderPresets>
+    <preset id="midship" label="Midship" angle_deg="0.0" display_order="0"/>
+    <preset id="starboard_10" label="Starboard 10" angle_deg="10.0" display_order="1"/>
+  </rudderPresets>
+</shipMotionConfig>

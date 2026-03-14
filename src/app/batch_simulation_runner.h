@@ -1,14 +1,12 @@
 #pragma once
 
-#include <string>
-
 #include "common/types.h"
 
 namespace ship_sim {
 
-class ConfigLoader {
+class BatchSimulationRunner {
 public:
-    static AppConfig loadFromFile(const std::string& path);
+    BatchRunResult run(const BatchRunOptions& options) const;
 };
 
 }  // namespace ship_sim

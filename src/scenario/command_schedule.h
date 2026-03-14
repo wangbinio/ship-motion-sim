@@ -11,8 +11,6 @@ class CommandSchedule {
 public:
     explicit CommandSchedule(CommandEvents events);
 
-    static CommandSchedule loadFromCsvFile(const std::string& path);
-
     CommandEvents popReadyEvents(double sim_time_s);
     bool empty() const;
 

@@ -1,36 +1,16 @@
 # 本次任务计划
 
-- [x] 阅读 `draft.md`，提取模型范围、输入输出与验收标准
-- [x] 设计详细技术方案结构，补足模块划分、数据流和实现约束
-- [x] 编写 `final.md`，形成可直接执行的技术方案
-- [x] 搭建 CMake 工程与源码目录，落地最小 CLI 仿真程序
-- [x] 实现配置解析、命令调度、Nomoto 模型与 CSV 日志输出
-- [x] 补充默认配置、示例命令和基础测试
-- [x] 构建并运行测试与示例，完成 review
-- [x] 增强输出文件逻辑并补充对应测试
-- [x] 编写 README，补充构建、运行和输出文件说明
-- [x] 重新验证文件输出与测试结果，更新 review
-- [x] 新增 3 分钟仿真配置与 20 秒间隔命令场景
-- [x] 运行仿真并生成日志输出文件
-- [x] 编写 Python 绘图脚本并生成结果图
-- [x] 验证仿真与绘图产物，更新 review
-- [x] 增强绘图脚本，支持离线简易地图底图上的轨迹展示
-- [x] 重新生成地图轨迹图并验证输出
-- [x] 更新 README 与 review，说明地图图层能力
-- [x] 编写 architecture.md，总结当前系统架构与边界
-- [x] 验证当前版本并提交首个 git 版本
-- [x] 基于现状梳理下一阶段工作项
-- [x] 清理误提交的缓存与冗余文件，整理 git 基线
-- [x] 设计端到端基线场景并补充测试夹具
-- [x] 生成基线 CSV 数据并纳入版本控制
-- [x] 增加端到端输出比对测试
-- [x] 构建验证并更新 review
-- [x] 整理关键参数解释并输出项目文档
-- [x] 校对文档内容与代码、配置的一致性
-- [x] 更新 review
+- [x] 审查 `CMakeLists.txt` 与 `src/` 目录，确认阶段 2 后的冗余 target 和废弃源码
+- [x] 删除无引用的旧 JSON 配置路径代码与重复 CLI target，收敛到当前 XML/GUI/CLI 实际需要的最小集合
+- [x] 同步修正文档中与构建产物、入口命名相关的引用，避免继续指向被清理内容
+- [x] 重新构建并运行测试，验证清理没有引入回归
+- [x] 整理变更并创建 git commit
 
 # Review
 
-- 已新增 `parameter_explanation.md`，系统解释 `nomoto_T_s`、`nomoto_K`、`speed_tau_s` 的数学作用、行为影响、默认值选择理由和调参方向。
-- 已核对文档中参数名、默认值与代码公式位置，确保与 `config/default_config.json`、`src/model/simple_nomoto_ship_model.cpp` 和 `final.md` 一致。
-- 本次为文档整理任务，未修改运行逻辑，也未新增测试。
+- 已从 `src/` 中删除无引用的旧 JSON 配置路径代码：`src/config/config_loader.*` 与 `src/common/simple_json.*`。
+- 已从 `CMakeLists.txt` 中移除重复的 CLI target `ship_motion_sim_cli`，保留 `ship_motion_sim` 作为唯一 CLI 入口。
+- 已从 `CMakeLists.txt` 中移除未实际使用的 `Qt5::Test` 依赖，当前测试仍通过 `QApplication` 和项目库完成。
+- 已同步更新 `README.md` 与 `architecture.md` 中的构建产物说明，避免继续引用已删除的重复 target。
+- 已执行 `cmake -S . -B build`、`cmake --build build -j4` 与 `ctest --test-dir build --output-on-failure`，结果通过。
+- 本次提交不会纳入 `control.png` 与 `phase-2-draft.md`，它们继续保留为工作区输入素材。 

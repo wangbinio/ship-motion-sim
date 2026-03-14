@@ -1,19 +1,27 @@
 #include <cmath>
-#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <filesystem>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 
+#include <QApplication>
+#include <QByteArray>
+
+#include "app/batch_simulation_runner.h"
+#include "app/realtime_simulation_controller.h"
 #include "app/simulation_app.h"
+#include "app/simulation_session.h"
 #include "common/math_utils.h"
 #include "common/types.h"
-#include "config/config_loader.h"
+#include "config/xml_config_loader.h"
+#include "gui/main_window.h"
 #include "logger/state_logger.h"
 #include "model/simple_nomoto_ship_model.h"
 #include "scenario/command_schedule.h"
+#include "scenario/csv_command_io.h"
 
 namespace {
 
@@ -26,19 +34,20 @@ void require(bool condition, const std::string& message) {
 }
 
 ship_sim::SimulationConfig makeSimulationConfig() {
-    return ship_sim::SimulationConfig {
-        0.1,
-        20.0,
-        6378137.0,
-        10.0,
-        0.08,
-        8.0,
-        35.0
-    };
+    return ship_sim::SimulationConfig {0.1, 20.0, 6378137.0, 10.0, 0.08, 8.0, 35.0};
 }
 
-ship_sim::InitialState makeInitialState() {
-    return ship_sim::InitialState {24.0, 120.0, 0.0, 0.0};
+ship_sim::SessionConfig makeSessionConfig() {
+    ship_sim::SessionConfig config;
+    config.simulation = makeSimulationConfig();
+    config.initial_state = ship_sim::InitialState {24.0, 120.0, 0.0, 0.0};
+    config.engine_panels = {{"default", "Default", 0}};
+    config.engine_orders = {{"ahead3", "Ahead 3", "default", 3.0, 0}, {"stop", "Stop", "default", 0.0, 1}};
+    config.rudder_presets = {{"midship", "Midship", 0.0, 0}, {"starboard_10", "Starboard 10", 10.0, 1}};
+    config.default_output_dir = (std::filesystem::temp_directory_path() / "ship_motion_sim_gui_tests").string();
+    config.auto_plot = false;
+    config.plot_script_path = (kSourceDir / "scripts" / "plot_simulation.py").string();
+    return config;
 }
 
 std::string readTextFile(const std::filesystem::path& path) {
@@ -63,22 +72,20 @@ void requireFileContentEquals(
     }
 
     std::size_t mismatch_index = 0;
-    while (mismatch_index < actual.size() &&
-           mismatch_index < expected.size() &&
+    while (mismatch_index < actual.size() && mismatch_index < expected.size() &&
            actual[mismatch_index] == expected[mismatch_index]) {
         ++mismatch_index;
     }
 
     throw std::runtime_error(
         context + " baseline mismatch at byte " + std::to_string(mismatch_index) +
-        " actual=" + actual_path.string() +
-        " expected=" + expected_path.string());
+        " actual=" + actual_path.string() + " expected=" + expected_path.string());
 }
 
 void testSpeedResponse() {
     ship_sim::SimpleNomotoShipModel model(makeSimulationConfig());
     model.setEngineOrderMapping({{"ahead3", 3.0}});
-    model.setInitialState(makeInitialState());
+    model.setInitialState(ship_sim::InitialState {24.0, 120.0, 0.0, 0.0});
     model.setEngineCommand("ahead3");
 
     double previous_speed = 0.0;
@@ -95,7 +102,7 @@ void testSpeedResponse() {
 void testYawResponse() {
     ship_sim::SimpleNomotoShipModel model(makeSimulationConfig());
     model.setEngineOrderMapping({{"ahead3", 3.0}});
-    model.setInitialState(makeInitialState());
+    model.setInitialState(ship_sim::InitialState {24.0, 120.0, 0.0, 0.0});
     model.setEngineCommand("ahead3");
     model.setRudderCommandDeg(10.0);
 
@@ -124,7 +131,7 @@ void testGeoConversion() {
 }
 
 void testCommandScheduleOrdering() {
-    const std::string path = "/tmp/ship_motion_sim_commands_test.csv";
+    const auto path = std::filesystem::temp_directory_path() / "ship_motion_sim_commands_test.csv";
     {
         std::ofstream output(path);
         output << "time_s,type,value\n";
@@ -133,7 +140,7 @@ void testCommandScheduleOrdering() {
         output << "10.0,engine,stop\n";
     }
 
-    auto schedule = ship_sim::CommandSchedule::loadFromCsvFile(path);
+    auto schedule = ship_sim::CommandSchedule(ship_sim::CsvCommandReader::loadFromFile(path.string()));
     require(schedule.popReadyEvents(0.0).empty(), "no event should be ready at t=0");
 
     const auto events = schedule.popReadyEvents(5.0);
@@ -141,105 +148,99 @@ void testCommandScheduleOrdering() {
     require(events[0].type == ship_sim::CommandType::Engine, "stable ordering should preserve CSV order");
     require(events[1].type == ship_sim::CommandType::Rudder, "second event should be rudder");
 
-    std::remove(path.c_str());
+    std::filesystem::remove(path);
 }
 
-void testConfigLoaderAndLogger() {
-    const std::string config_path = "/tmp/ship_motion_sim_config_test.json";
-    {
-        std::ofstream output(config_path);
-        output
-            << "{\n"
-            << "  \"simulation\": {\n"
-            << "    \"dt_s\": 0.1,\n"
-            << "    \"duration_s\": 5.0,\n"
-            << "    \"earth_radius_m\": 6378137.0,\n"
-            << "    \"nomoto_T_s\": 10.0,\n"
-            << "    \"nomoto_K\": 0.08,\n"
-            << "    \"speed_tau_s\": 8.0,\n"
-            << "    \"rudder_limit_deg\": 35.0\n"
-            << "  },\n"
-            << "  \"initial_state\": {\n"
-            << "    \"lat_deg\": 24.0,\n"
-            << "    \"lon_deg\": 120.0,\n"
-            << "    \"heading_deg\": 0.0,\n"
-            << "    \"speed_mps\": 0.0\n"
-            << "  },\n"
-            << "  \"engine_order_map\": {\n"
-            << "    \"stop\": 0.0,\n"
-            << "    \"ahead3\": 3.0\n"
-            << "  }\n"
-            << "}\n";
-    }
+void testXmlConfigLoaderAndWriter() {
+    const auto temp_dir = std::filesystem::temp_directory_path() / "ship_motion_sim_xml_test";
+    std::filesystem::create_directories(temp_dir);
+    const auto output_path = temp_dir / "config.xml";
 
-    const auto config = ship_sim::ConfigLoader::loadFromFile(config_path);
-    require(config.engine_order_map.at("ahead3") == 3.0, "config loader should parse engine map");
+    const ship_sim::SessionConfig source_config = makeSessionConfig();
+    ship_sim::XmlConfigWriter::saveToFile(source_config, output_path.string());
+    const ship_sim::SessionConfig loaded_config = ship_sim::XmlConfigLoader::loadFromFile(output_path.string());
 
-    std::ostringstream stream;
-    ship_sim::StateLogger logger(stream);
-    logger.writeHeader();
-    logger.writeState(ship_sim::ShipState {0.0, 24.0, 120.0, 0.0, 0.0, 0.0});
-    require(
-        stream.str().find("time_s,lat_deg,lon_deg,heading_deg,speed_mps,yaw_rate_deg_s") != std::string::npos,
-        "logger header should be present");
-
-    std::remove(config_path.c_str());
+    require(loaded_config.engine_orders.size() == source_config.engine_orders.size(), "engine orders should round-trip");
+    require(loaded_config.rudder_presets.size() == source_config.rudder_presets.size(), "rudder presets should round-trip");
+    require(loaded_config.default_output_dir == source_config.default_output_dir, "output dir should round-trip");
 }
 
-void testSimulationAppWritesOutputFile() {
-    const std::string config_path = "/tmp/ship_motion_sim_app_config.json";
-    const std::string commands_path = "/tmp/ship_motion_sim_app_commands.csv";
-    const std::string output_path = "/tmp/ship_motion_sim_output/results/run.csv";
+void testSimulationSessionTracksHistory() {
+    ship_sim::SimulationSession session(makeSessionConfig());
+    session.applyCommand(ship_sim::CommandEvent {0.0, ship_sim::CommandType::Engine, "ahead3"});
+    session.applyCommand(ship_sim::CommandEvent {0.0, ship_sim::CommandType::Rudder, "10"});
+    session.step(0.1);
+    session.step(0.1);
 
-    {
-        std::ofstream output(config_path);
-        output
-            << "{\n"
-            << "  \"simulation\": {\n"
-            << "    \"dt_s\": 0.1,\n"
-            << "    \"duration_s\": 0.2,\n"
-            << "    \"earth_radius_m\": 6378137.0,\n"
-            << "    \"nomoto_T_s\": 10.0,\n"
-            << "    \"nomoto_K\": 0.08,\n"
-            << "    \"speed_tau_s\": 8.0,\n"
-            << "    \"rudder_limit_deg\": 35.0\n"
-            << "  },\n"
-            << "  \"initial_state\": {\n"
-            << "    \"lat_deg\": 24.0,\n"
-            << "    \"lon_deg\": 120.0,\n"
-            << "    \"heading_deg\": 0.0,\n"
-            << "    \"speed_mps\": 0.0\n"
-            << "  },\n"
-            << "  \"engine_order_map\": {\n"
-            << "    \"stop\": 0.0,\n"
-            << "    \"ahead3\": 3.0\n"
-            << "  }\n"
-            << "}\n";
-    }
+    require(session.stateHistory().size() == 3, "state history should include initial state and two steps");
+    require(session.commandHistory().size() == 2, "command history should include applied commands");
+    require(session.currentRudderCommandDeg() == 10.0, "rudder command should be tracked");
+    require(session.currentEngineOrderId() == "ahead3", "engine order should be tracked");
+}
+
+void testBatchSimulationRunnerWritesArtifacts() {
+    const auto temp_dir = std::filesystem::temp_directory_path() / "ship_motion_sim_batch_runner";
+    std::filesystem::remove_all(temp_dir);
+    std::filesystem::create_directories(temp_dir);
+
+    const auto commands_path = temp_dir / "commands.csv";
     {
         std::ofstream output(commands_path);
         output << "time_s,type,value\n";
         output << "0.0,engine,ahead3\n";
     }
 
-    std::filesystem::remove_all("/tmp/ship_motion_sim_output");
+    ship_sim::BatchSimulationRunner runner;
+    const ship_sim::BatchRunResult result = runner.run(ship_sim::BatchRunOptions {
+        makeSessionConfig(),
+        commands_path.string(),
+        "",
+        temp_dir.string(),
+        "",
+        false,
+    });
+
+    require(std::filesystem::exists(result.artifacts.state_csv_path), "state csv should exist");
+    require(std::filesystem::exists(result.artifacts.commands_csv_path), "commands csv should exist");
+    require(std::filesystem::exists(result.artifacts.summary_path), "summary should exist");
+    require(!result.plot_generated, "plot should be disabled");
+}
+
+void testSimulationAppWritesOutputFile() {
+    const auto output_path = std::filesystem::temp_directory_path() / "ship_motion_sim_output.csv";
+    std::filesystem::remove(output_path);
 
     ship_sim::SimulationApp app;
-    const int exit_code = app.run(ship_sim::CliOptions {config_path, commands_path, output_path});
+    const int exit_code = app.run(ship_sim::CliOptions {
+        (kSourceDir / "tests" / "fixtures" / "baseline_straight_config.xml").string(),
+        (kSourceDir / "tests" / "fixtures" / "baseline_straight_commands.csv").string(),
+        output_path.string(),
+        "",
+        "",
+        false,
+    });
     require(exit_code == 0, "simulation app should return success");
     require(std::filesystem::exists(output_path), "output csv should be created");
+}
 
-    std::ifstream input(output_path);
-    std::stringstream buffer;
-    buffer << input.rdbuf();
-    const std::string content = buffer.str();
-    require(content.find("time_s,lat_deg,lon_deg,heading_deg,speed_mps,yaw_rate_deg_s") != std::string::npos,
-            "output file should contain CSV header");
-    require(content.find("0.100000") != std::string::npos, "output file should contain simulation rows");
+void testRealtimeControllerAdvanceByElapsed() {
+    ship_sim::SessionConfig config = makeSessionConfig();
+    config.simulation.duration_s = 0.2;
+    config.default_output_dir = (std::filesystem::temp_directory_path() / "ship_motion_sim_rt").string();
 
-    std::remove(config_path.c_str());
-    std::remove(commands_path.c_str());
-    std::filesystem::remove_all("/tmp/ship_motion_sim_output");
+    ship_sim::RealtimeSimulationController controller;
+    controller.start(config);
+    controller.applyEngineCommand("ahead3");
+    controller.advanceByElapsed(0.25);
+
+    require(controller.hasSession(), "controller should own a session after start");
+    require(controller.currentState().time_s >= 0.2 - 1e-9, "controller should advance simulation time");
+    require(!controller.lastArtifacts().artifacts_dir.empty(), "controller should write artifacts when duration is reached");
+}
+
+void testMainWindowSmoke() {
+    ship_sim::MainWindow window((kSourceDir / "config" / "default_config.xml").string());
+    require(!window.windowTitle().isEmpty(), "main window should initialize");
 }
 
 void testEndToEndBaseline(
@@ -249,12 +250,17 @@ void testEndToEndBaseline(
     const auto config_path = kSourceDir / "tests" / "fixtures" / config_name;
     const auto commands_path = kSourceDir / "tests" / "fixtures" / commands_name;
     const auto baseline_path = kSourceDir / "tests" / "baselines" / baseline_name;
-    const auto output_path =
-        std::filesystem::temp_directory_path() / ("ship_motion_sim_" + baseline_name);
+    const auto output_path = std::filesystem::temp_directory_path() / ("ship_motion_sim_" + baseline_name);
 
     ship_sim::SimulationApp app;
-    const int exit_code = app.run(
-        ship_sim::CliOptions {config_path.string(), commands_path.string(), output_path.string()});
+    const int exit_code = app.run(ship_sim::CliOptions {
+        config_path.string(),
+        commands_path.string(),
+        output_path.string(),
+        "",
+        "",
+        false,
+    });
     require(exit_code == 0, "simulation app should succeed for baseline " + baseline_name);
     require(std::filesystem::exists(output_path), "baseline output should exist for " + baseline_name);
 
@@ -264,28 +270,35 @@ void testEndToEndBaseline(
 
 void testEndToEndStraightBaseline() {
     testEndToEndBaseline(
-        "baseline_straight_config.json",
+        "baseline_straight_config.xml",
         "baseline_straight_commands.csv",
         "baseline_straight_expected.csv");
 }
 
 void testEndToEndTurnBaseline() {
     testEndToEndBaseline(
-        "baseline_turn_config.json",
+        "baseline_turn_config.xml",
         "baseline_turn_commands.csv",
         "baseline_turn_expected.csv");
 }
 
 }  // namespace
 
-int main() {
+int main(int argc, char* argv[]) {
+    qputenv("QT_QPA_PLATFORM", QByteArray("offscreen"));
+    QApplication app(argc, argv);
+
     try {
         testSpeedResponse();
         testYawResponse();
         testGeoConversion();
         testCommandScheduleOrdering();
-        testConfigLoaderAndLogger();
+        testXmlConfigLoaderAndWriter();
+        testSimulationSessionTracksHistory();
+        testBatchSimulationRunnerWritesArtifacts();
         testSimulationAppWritesOutputFile();
+        testRealtimeControllerAdvanceByElapsed();
+        testMainWindowSmoke();
         testEndToEndStraightBaseline();
         testEndToEndTurnBaseline();
         std::cout << "All tests passed\n";

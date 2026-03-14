@@ -8,6 +8,9 @@ struct CliOptions {
     std::string config_path;
     std::string commands_path;
     std::string output_path;
+    std::string artifacts_dir;
+    std::string plot_output_path;
+    bool enable_plot {true};
 };
 
 class SimulationApp {
