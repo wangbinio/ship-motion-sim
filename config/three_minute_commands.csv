@@ -1,0 +1,11 @@
+time_s,type,value
+0.0,engine,ahead2
+60.0,rudder,30
+120.0,rudder,0
+180.0,engine,ahead4
+180.0,rudder,-30
+300.0,engine,ahead2
+360.0,rudder,30
+420.0,rudder,0
+480.0,engine,ahead4
+480.0,rudder,-30

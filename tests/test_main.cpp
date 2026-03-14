@@ -1,0 +1,225 @@
+#include <cmath>
+#include <cstdio>
+#include <fstream>
+#include <iostream>
+#include <filesystem>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+
+#include "app/simulation_app.h"
+#include "common/math_utils.h"
+#include "common/types.h"
+#include "config/config_loader.h"
+#include "logger/state_logger.h"
+#include "model/simple_nomoto_ship_model.h"
+#include "scenario/command_schedule.h"
+
+namespace {
+
+void require(bool condition, const std::string& message) {
+    if (!condition) {
+        throw std::runtime_error(message);
+    }
+}
+
+ship_sim::SimulationConfig makeSimulationConfig() {
+    return ship_sim::SimulationConfig {
+        0.1,
+        20.0,
+        6378137.0,
+        10.0,
+        0.08,
+        8.0,
+        35.0
+    };
+}
+
+ship_sim::InitialState makeInitialState() {
+    return ship_sim::InitialState {24.0, 120.0, 0.0, 0.0};
+}
+
+void testSpeedResponse() {
+    ship_sim::SimpleNomotoShipModel model(makeSimulationConfig());
+    model.setEngineOrderMapping({{"ahead3", 3.0}});
+    model.setInitialState(makeInitialState());
+    model.setEngineCommand("ahead3");
+
+    double previous_speed = 0.0;
+    for (int i = 0; i < 100; ++i) {
+        model.step(0.1);
+        const auto state = model.getState((i + 1) * 0.1);
+        require(state.speed_mps >= previous_speed - 1e-9, "speed should increase monotonically");
+        require(state.speed_mps <= 3.0 + 1e-9, "speed should not overshoot target for this setup");
+        previous_speed = state.speed_mps;
+    }
+    require(previous_speed > 2.0, "speed should approach target");
+}
+
+void testYawResponse() {
+    ship_sim::SimpleNomotoShipModel model(makeSimulationConfig());
+    model.setEngineOrderMapping({{"ahead3", 3.0}});
+    model.setInitialState(makeInitialState());
+    model.setEngineCommand("ahead3");
+    model.setRudderCommandDeg(10.0);
+
+    double previous_heading = 0.0;
+    double previous_yaw_rate = 0.0;
+    for (int i = 0; i < 50; ++i) {
+        model.step(0.1);
+        const auto state = model.getState((i + 1) * 0.1);
+        require(state.yaw_rate_deg_s >= previous_yaw_rate - 1e-9, "yaw rate should increase monotonically");
+        require(state.heading_deg >= previous_heading - 1e-9, "heading should increase under constant starboard rudder");
+        previous_heading = state.heading_deg;
+        previous_yaw_rate = state.yaw_rate_deg_s;
+    }
+    require(previous_heading > 0.1, "heading should change noticeably");
+}
+
+void testGeoConversion() {
+    const auto result = ship_sim::math::localOffsetToLatLonDeg(
+        24.0,
+        120.0,
+        0.0,
+        6378137.0 * ship_sim::math::degToRad(1.0),
+        6378137.0);
+    require(std::abs(result.first - 25.0) < 1e-6, "latitude conversion should match 1 degree north");
+    require(std::abs(result.second - 120.0) < 1e-6, "longitude should remain unchanged");
+}
+
+void testCommandScheduleOrdering() {
+    const std::string path = "/tmp/ship_motion_sim_commands_test.csv";
+    {
+        std::ofstream output(path);
+        output << "time_s,type,value\n";
+        output << "5.0,engine,ahead3\n";
+        output << "5.0,rudder,10\n";
+        output << "10.0,engine,stop\n";
+    }
+
+    auto schedule = ship_sim::CommandSchedule::loadFromCsvFile(path);
+    require(schedule.popReadyEvents(0.0).empty(), "no event should be ready at t=0");
+
+    const auto events = schedule.popReadyEvents(5.0);
+    require(events.size() == 2, "two events should be ready at t=5");
+    require(events[0].type == ship_sim::CommandType::Engine, "stable ordering should preserve CSV order");
+    require(events[1].type == ship_sim::CommandType::Rudder, "second event should be rudder");
+
+    std::remove(path.c_str());
+}
+
+void testConfigLoaderAndLogger() {
+    const std::string config_path = "/tmp/ship_motion_sim_config_test.json";
+    {
+        std::ofstream output(config_path);
+        output
+            << "{\n"
+            << "  \"simulation\": {\n"
+            << "    \"dt_s\": 0.1,\n"
+            << "    \"duration_s\": 5.0,\n"
+            << "    \"earth_radius_m\": 6378137.0,\n"
+            << "    \"nomoto_T_s\": 10.0,\n"
+            << "    \"nomoto_K\": 0.08,\n"
+            << "    \"speed_tau_s\": 8.0,\n"
+            << "    \"rudder_limit_deg\": 35.0\n"
+            << "  },\n"
+            << "  \"initial_state\": {\n"
+            << "    \"lat_deg\": 24.0,\n"
+            << "    \"lon_deg\": 120.0,\n"
+            << "    \"heading_deg\": 0.0,\n"
+            << "    \"speed_mps\": 0.0\n"
+            << "  },\n"
+            << "  \"engine_order_map\": {\n"
+            << "    \"stop\": 0.0,\n"
+            << "    \"ahead3\": 3.0\n"
+            << "  }\n"
+            << "}\n";
+    }
+
+    const auto config = ship_sim::ConfigLoader::loadFromFile(config_path);
+    require(config.engine_order_map.at("ahead3") == 3.0, "config loader should parse engine map");
+
+    std::ostringstream stream;
+    ship_sim::StateLogger logger(stream);
+    logger.writeHeader();
+    logger.writeState(ship_sim::ShipState {0.0, 24.0, 120.0, 0.0, 0.0, 0.0});
+    require(
+        stream.str().find("time_s,lat_deg,lon_deg,heading_deg,speed_mps,yaw_rate_deg_s") != std::string::npos,
+        "logger header should be present");
+
+    std::remove(config_path.c_str());
+}
+
+void testSimulationAppWritesOutputFile() {
+    const std::string config_path = "/tmp/ship_motion_sim_app_config.json";
+    const std::string commands_path = "/tmp/ship_motion_sim_app_commands.csv";
+    const std::string output_path = "/tmp/ship_motion_sim_output/results/run.csv";
+
+    {
+        std::ofstream output(config_path);
+        output
+            << "{\n"
+            << "  \"simulation\": {\n"
+            << "    \"dt_s\": 0.1,\n"
+            << "    \"duration_s\": 0.2,\n"
+            << "    \"earth_radius_m\": 6378137.0,\n"
+            << "    \"nomoto_T_s\": 10.0,\n"
+            << "    \"nomoto_K\": 0.08,\n"
+            << "    \"speed_tau_s\": 8.0,\n"
+            << "    \"rudder_limit_deg\": 35.0\n"
+            << "  },\n"
+            << "  \"initial_state\": {\n"
+            << "    \"lat_deg\": 24.0,\n"
+            << "    \"lon_deg\": 120.0,\n"
+            << "    \"heading_deg\": 0.0,\n"
+            << "    \"speed_mps\": 0.0\n"
+            << "  },\n"
+            << "  \"engine_order_map\": {\n"
+            << "    \"stop\": 0.0,\n"
+            << "    \"ahead3\": 3.0\n"
+            << "  }\n"
+            << "}\n";
+    }
+    {
+        std::ofstream output(commands_path);
+        output << "time_s,type,value\n";
+        output << "0.0,engine,ahead3\n";
+    }
+
+    std::filesystem::remove_all("/tmp/ship_motion_sim_output");
+
+    ship_sim::SimulationApp app;
+    const int exit_code = app.run(ship_sim::CliOptions {config_path, commands_path, output_path});
+    require(exit_code == 0, "simulation app should return success");
+    require(std::filesystem::exists(output_path), "output csv should be created");
+
+    std::ifstream input(output_path);
+    std::stringstream buffer;
+    buffer << input.rdbuf();
+    const std::string content = buffer.str();
+    require(content.find("time_s,lat_deg,lon_deg,heading_deg,speed_mps,yaw_rate_deg_s") != std::string::npos,
+            "output file should contain CSV header");
+    require(content.find("0.100000") != std::string::npos, "output file should contain simulation rows");
+
+    std::remove(config_path.c_str());
+    std::remove(commands_path.c_str());
+    std::filesystem::remove_all("/tmp/ship_motion_sim_output");
+}
+
+}  // namespace
+
+int main() {
+    try {
+        testSpeedResponse();
+        testYawResponse();
+        testGeoConversion();
+        testCommandScheduleOrdering();
+        testConfigLoaderAndLogger();
+        testSimulationAppWritesOutputFile();
+        std::cout << "All tests passed\n";
+        return 0;
+    } catch (const std::exception& ex) {
+        std::cerr << "Test failure: " << ex.what() << '\n';
+        return 1;
+    }
+}
