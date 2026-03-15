@@ -6,7 +6,7 @@
 - `nomoto_K`
 - `speed_tau_s`
 
-它们定义于 [default_config.json](/home/sun/projects/cpp/ship-motion-sim/config/default_config.json#L2)，实际生效位置在 [simple_nomoto_ship_model.cpp](/home/sun/projects/cpp/ship-motion-sim/src/model/simple_nomoto_ship_model.cpp#L88)，对应的模型设计说明见 [final.md](/home/sun/projects/cpp/ship-motion-sim/final.md#L70)。
+它们定义于 [default_config.json](/home/sun/projects/cpp/ship-motion-sim/config/default_config.json#L2)，实际生效位置在 [simple_nomoto_ship_model.cpp](/home/sun/projects/cpp/ship-motion-sim/src/model/simple_nomoto_ship_model.cpp#L88)，对应的模型设计说明见 [specs/001-ship-motion-model/final.md](/home/sun/projects/cpp/ship-motion-sim/specs/001-ship-motion-model/final.md#L70)。
 
 需要先明确一点：
 
@@ -300,7 +300,7 @@ u_dot = (u_cmd - u) / tau_u
 
 - 某型实船辨识得到的工程参数
 
-这一点在设计文档中已经说明，见 [final.md](/home/sun/projects/cpp/ship-motion-sim/final.md#L84) 和 [final.md](/home/sun/projects/cpp/ship-motion-sim/final.md#L105)。
+这一点在设计文档中已经说明，见 [specs/001-ship-motion-model/final.md](/home/sun/projects/cpp/ship-motion-sim/specs/001-ship-motion-model/final.md#L84) 和 [specs/001-ship-motion-model/final.md](/home/sun/projects/cpp/ship-motion-sim/specs/001-ship-motion-model/final.md#L105)。
 
 ## 7. 调参时可以怎么理解
 
