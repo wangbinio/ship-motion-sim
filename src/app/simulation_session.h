@@ -2,8 +2,6 @@
 
 #include <string>
 #include <unordered_map>
-#include <vector>
-
 #include "common/types.h"
 #include "model/simple_nomoto_ship_model.h"
 
@@ -21,8 +19,6 @@ public:
     double currentTimeS() const;
     double currentRudderCommandDeg() const;
     const std::string& currentEngineOrderId() const;
-    const std::vector<ShipState>& stateHistory() const;
-    const CommandEvents& commandHistory() const;
 
 private:
     std::unordered_map<std::string, double> buildEngineOrderMap() const;
@@ -33,8 +29,6 @@ private:
     double current_time_s_ {0.0};
     double current_rudder_deg_ {0.0};
     std::string current_engine_order_id_;
-    std::vector<ShipState> state_history_;
-    CommandEvents command_history_;
 };
 
 }  // namespace ship_sim

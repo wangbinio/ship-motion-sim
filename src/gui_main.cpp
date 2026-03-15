@@ -4,6 +4,7 @@
 #include <string>
 
 #include <QApplication>
+#include <QDir>
 
 #include "gui/main_window.h"
 
@@ -19,7 +20,14 @@ std::string parseConfigPath(int argc, char* argv[]) {
             throw std::runtime_error("Unknown or incomplete argument: " + arg);
         }
     }
-    return config_path;
+
+    if (!config_path.empty()) {
+        return config_path;
+    }
+
+    const QString default_path =
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("../config/default_config.xml"));
+    return QDir::cleanPath(default_path).toStdString();
 }
 
 }  // namespace

@@ -2,10 +2,8 @@
 
 #include <cmath>
 #include <filesystem>
-#include <fstream>
 #include <stdexcept>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 
 #include <QDomDocument>

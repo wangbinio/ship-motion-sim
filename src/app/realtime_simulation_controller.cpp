@@ -1,132 +1,67 @@
 #include "app/realtime_simulation_controller.h"
 
 #include <filesystem>
-#include <fstream>
-#include <iomanip>
 #include <stdexcept>
 
 #include <QDateTime>
 
-#include "app/plot_runner.h"
 #include "logger/state_logger.h"
-#include "scenario/csv_command_io.h"
 
 namespace ship_sim {
-
-namespace {
-
-const std::vector<ShipState>& emptyStates() {
-    static const std::vector<ShipState> states;
-    return states;
-}
-
-const CommandEvents& emptyCommands() {
-    static const CommandEvents commands;
-    return commands;
-}
-
-void writeStateHistory(const std::string& path, const std::vector<ShipState>& states) {
-    std::ofstream output(path);
-    if (!output) {
-        throw std::runtime_error("Failed to open state output file: " + path);
-    }
-    StateLogger logger(output);
-    logger.writeHeader();
-    for (const auto& state : states) {
-        logger.writeState(state);
-    }
-}
-
-void writeSummary(
-    const std::string& path,
-    const SimulationSession& session,
-    const ArtifactPaths& artifacts,
-    const bool plot_generated) {
-    std::ofstream output(path);
-    if (!output) {
-        throw std::runtime_error("Failed to open summary output file: " + path);
-    }
-
-    const ShipState& final_state = session.currentState();
-    output << std::fixed << std::setprecision(6);
-    output << "artifacts_dir=" << artifacts.artifacts_dir << '\n';
-    output << "state_csv=" << artifacts.state_csv_path << '\n';
-    output << "commands_csv=" << artifacts.commands_csv_path << '\n';
-    output << "plot_png=" << artifacts.plot_path << '\n';
-    output << "state_count=" << session.stateHistory().size() << '\n';
-    output << "command_count=" << session.commandHistory().size() << '\n';
-    output << "final_time_s=" << final_state.time_s << '\n';
-    output << "final_lat_deg=" << final_state.lat_deg << '\n';
-    output << "final_lon_deg=" << final_state.lon_deg << '\n';
-    output << "final_heading_deg=" << final_state.heading_deg << '\n';
-    output << "final_speed_mps=" << final_state.speed_mps << '\n';
-    output << "final_yaw_rate_deg_s=" << final_state.yaw_rate_deg_s << '\n';
-    output << "plot_generated=" << (plot_generated ? "true" : "false") << '\n';
-}
-
-}  // namespace
 
 RealtimeSimulationController::RealtimeSimulationController(QObject* parent) : QObject(parent) {
     timer_.setInterval(33);
     connect(&timer_, &QTimer::timeout, this, &RealtimeSimulationController::onTick);
 }
 
-void RealtimeSimulationController::start(const SessionConfig& config) {
+void RealtimeSimulationController::setSessionConfig(const SessionConfig& config) {
+    if (running_) {
+        stop();
+    }
     config_ = config;
-    session_ = std::make_unique<SimulationSession>(config_);
-    accumulator_s_ = 0.0;
-    last_artifacts_ = ArtifactPaths {};
-    running_ = true;
-    elapsed_timer_.start();
-    timer_.start();
-    emit runningChanged(true);
-    emit stateAdvanced();
 }
 
 void RealtimeSimulationController::stop() {
-    if (!session_) {
+    if (!session_ && !log_output_.is_open()) {
         return;
     }
 
     timer_.stop();
     running_ = false;
-
-    bool plot_generated = false;
-    try {
-        writeSessionArtifacts(&plot_generated);
-    } catch (const std::exception& ex) {
-        emit errorOccurred(QString::fromStdString(ex.what()));
-    }
+    session_.reset();
+    closeLogFile();
+    accumulator_s_ = 0.0;
 
     emit runningChanged(false);
-    emit sessionFinished(QString::fromStdString(last_artifacts_.artifacts_dir));
     emit stateAdvanced();
 }
 
 void RealtimeSimulationController::applyRudderCommand(const double rudder_deg) {
-    if (!session_) {
-        return;
+    try {
+        ensureSessionStarted();
+        session_->applyCommand(CommandEvent {
+            session_->currentTimeS(),
+            CommandType::Rudder,
+            std::to_string(rudder_deg),
+        });
+        emit stateAdvanced();
+    } catch (const std::exception& ex) {
+        emit errorOccurred(QString::fromStdString(ex.what()));
     }
-
-    session_->applyCommand(CommandEvent {
-        session_->currentTimeS(),
-        CommandType::Rudder,
-        std::to_string(rudder_deg),
-    });
-    emit stateAdvanced();
 }
 
 void RealtimeSimulationController::applyEngineCommand(const std::string& order_id) {
-    if (!session_) {
-        return;
+    try {
+        ensureSessionStarted();
+        session_->applyCommand(CommandEvent {
+            session_->currentTimeS(),
+            CommandType::Engine,
+            order_id,
+        });
+        emit stateAdvanced();
+    } catch (const std::exception& ex) {
+        emit errorOccurred(QString::fromStdString(ex.what()));
     }
-
-    session_->applyCommand(CommandEvent {
-        session_->currentTimeS(),
-        CommandType::Engine,
-        order_id,
-    });
-    emit stateAdvanced();
 }
 
 void RealtimeSimulationController::advanceByElapsed(const double elapsed_s) {
@@ -134,18 +69,25 @@ void RealtimeSimulationController::advanceByElapsed(const double elapsed_s) {
         return;
     }
 
+    // 先累积真实经过的墙钟时间，再按固定 dt 推进模型。
+    // 这样即使 Qt 定时器回调存在抖动，数值积分步长也仍然稳定。
     accumulator_s_ += elapsed_s;
     const double dt_s = config_.simulation.dt_s;
     int max_catch_up_steps = 5;
     bool advanced = false;
+    bool reached_duration = false;
 
+    // 单次回调最多补若干步，避免界面卡顿后一次性追赶过多积分步数，
+    // 反过来进一步拖慢 UI。
     while (accumulator_s_ + 1e-9 >= dt_s && max_catch_up_steps-- > 0) {
-        session_->step(dt_s);
+        const ShipState state = session_->step(dt_s);
+        logger_->writeState(state);
         accumulator_s_ -= dt_s;
         advanced = true;
 
         if (config_.simulation.duration_s > 0.0 &&
             session_->currentTimeS() + 1e-9 >= config_.simulation.duration_s) {
+            reached_duration = true;
             break;
         }
     }
@@ -154,8 +96,7 @@ void RealtimeSimulationController::advanceByElapsed(const double elapsed_s) {
         emit stateAdvanced();
     }
 
-    if (config_.simulation.duration_s > 0.0 &&
-        session_->currentTimeS() + 1e-9 >= config_.simulation.duration_s) {
+    if (reached_duration) {
         stop();
     }
 }
@@ -175,20 +116,6 @@ const ShipState& RealtimeSimulationController::currentState() const {
     return session_->currentState();
 }
 
-const std::vector<ShipState>& RealtimeSimulationController::stateHistory() const {
-    if (!session_) {
-        return emptyStates();
-    }
-    return session_->stateHistory();
-}
-
-const CommandEvents& RealtimeSimulationController::commandHistory() const {
-    if (!session_) {
-        return emptyCommands();
-    }
-    return session_->commandHistory();
-}
-
 double RealtimeSimulationController::currentRudderCommandDeg() const {
     if (!session_) {
         return 0.0;
@@ -204,8 +131,8 @@ const std::string& RealtimeSimulationController::currentEngineOrderId() const {
     return session_->currentEngineOrderId();
 }
 
-const ArtifactPaths& RealtimeSimulationController::lastArtifacts() const {
-    return last_artifacts_;
+const std::string& RealtimeSimulationController::logFilePath() const {
+    return log_file_path_;
 }
 
 void RealtimeSimulationController::onTick() {
@@ -216,51 +143,50 @@ void RealtimeSimulationController::onTick() {
     advanceByElapsed(static_cast<double>(elapsed_ms) / 1000.0);
 }
 
-ArtifactPaths RealtimeSimulationController::buildArtifactPaths() const {
-    ArtifactPaths artifacts;
-    const QString timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"));
-    const std::filesystem::path artifacts_dir =
-        std::filesystem::path(config_.default_output_dir) / timestamp.toStdString();
-    std::filesystem::create_directories(artifacts_dir);
-
-    artifacts.artifacts_dir = artifacts_dir.string();
-    artifacts.state_csv_path = (artifacts_dir / "state.csv").string();
-    artifacts.commands_csv_path = (artifacts_dir / "commands.csv").string();
-    artifacts.plot_path = (artifacts_dir / "plot.png").string();
-    artifacts.summary_path = (artifacts_dir / "summary.txt").string();
-    return artifacts;
-}
-
-void RealtimeSimulationController::writeSessionArtifacts(bool* plot_generated) {
-    if (!session_) {
+void RealtimeSimulationController::ensureSessionStarted() {
+    if (session_) {
         return;
     }
-
-    last_artifacts_ = buildArtifactPaths();
-    writeStateHistory(last_artifacts_.state_csv_path, session_->stateHistory());
-    CsvCommandWriter::writeToFile(last_artifacts_.commands_csv_path, session_->commandHistory());
-
-    if (plot_generated != nullptr) {
-        *plot_generated = false;
-    }
-    if (config_.auto_plot && !config_.plot_script_path.empty()) {
-        try {
-            PlotRunner::run(PlotRequest {
-                config_.plot_script_path,
-                last_artifacts_.state_csv_path,
-                last_artifacts_.commands_csv_path,
-                last_artifacts_.plot_path,
-                "Ship Motion Simulation Overview",
-            });
-            if (plot_generated != nullptr) {
-                *plot_generated = true;
-            }
-        } catch (const std::exception& ex) {
-            emit errorOccurred(QString::fromStdString(ex.what()));
-        }
+    if (config_.simulation.dt_s <= 0.0) {
+        throw std::runtime_error("Simulation dt_s must be positive");
     }
 
-    writeSummary(last_artifacts_.summary_path, *session_, last_artifacts_, plot_generated != nullptr && *plot_generated);
+    const std::filesystem::path log_path(buildLogFilePath());
+    std::filesystem::create_directories(log_path.parent_path());
+
+    log_output_.open(log_path, std::ios::out | std::ios::trunc);
+    if (!log_output_) {
+        throw std::runtime_error("Failed to open log file: " + log_path.string());
+    }
+
+    log_file_path_ = log_path.string();
+    logger_ = std::make_unique<StateLogger>(log_output_);
+    session_ = std::make_unique<SimulationSession>(config_);
+    logger_->writeHeader();
+    logger_->writeState(session_->currentState());
+
+    accumulator_s_ = 0.0;
+    running_ = true;
+    elapsed_timer_.start();
+    timer_.start();
+
+    emit runningChanged(true);
+    emit stateAdvanced();
+}
+
+std::string RealtimeSimulationController::buildLogFilePath() const {
+    const QString timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"));
+    const std::filesystem::path path =
+        std::filesystem::path("..") / "Logs" / (timestamp.toStdString() + ".csv");
+    return path.string();
+}
+
+void RealtimeSimulationController::closeLogFile() {
+    logger_.reset();
+    if (log_output_.is_open()) {
+        log_output_.flush();
+        log_output_.close();
+    }
 }
 
 }  // namespace ship_sim

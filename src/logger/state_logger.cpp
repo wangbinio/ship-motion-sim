@@ -9,6 +9,7 @@ StateLogger::StateLogger(std::ostream& output_stream) : output_stream_(output_st
 
 void StateLogger::writeHeader() const {
     output_stream_ << "time_s,lat_deg,lon_deg,heading_deg,speed_mps,yaw_rate_deg_s\n";
+    output_stream_.flush();
 }
 
 void StateLogger::writeState(const ShipState& state) const {
@@ -19,6 +20,7 @@ void StateLogger::writeState(const ShipState& state) const {
                    << state.heading_deg << ','
                    << state.speed_mps << ','
                    << state.yaw_rate_deg_s << '\n';
+    output_stream_.flush();
 }
 
 }  // namespace ship_sim

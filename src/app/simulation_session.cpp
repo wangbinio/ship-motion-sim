@@ -22,7 +22,6 @@ SimulationSession::SimulationSession(const SessionConfig& config)
     model_.setEngineOrderMapping(buildEngineOrderMap());
     model_.setInitialState(config_.initial_state);
     current_state_ = model_.getState(0.0);
-    state_history_.push_back(current_state_);
 }
 
 void SimulationSession::applyCommand(const CommandEvent& event) {
@@ -35,15 +34,12 @@ void SimulationSession::applyCommand(const CommandEvent& event) {
     } else {
         throw std::runtime_error("Unsupported command type");
     }
-
-    command_history_.push_back(event);
 }
 
 ShipState SimulationSession::step(const double dt_s) {
     model_.step(dt_s);
     current_time_s_ += dt_s;
     current_state_ = model_.getState(current_time_s_);
-    state_history_.push_back(current_state_);
     return current_state_;
 }
 
@@ -65,14 +61,6 @@ double SimulationSession::currentRudderCommandDeg() const {
 
 const std::string& SimulationSession::currentEngineOrderId() const {
     return current_engine_order_id_;
-}
-
-const std::vector<ShipState>& SimulationSession::stateHistory() const {
-    return state_history_;
-}
-
-const CommandEvents& SimulationSession::commandHistory() const {
-    return command_history_;
 }
 
 std::unordered_map<std::string, double> SimulationSession::buildEngineOrderMap() const {
