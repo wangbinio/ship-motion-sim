@@ -181,6 +181,13 @@ void testMainWindowSmokeAndSelectionFeedback() {
 
     ship_sim::MainWindow window(defaultConfigPath());
     require(!window.windowTitle().isEmpty(), "main window should initialize");
+    require(!window.styleSheet().isEmpty(), "main window should load external QSS");
+    require(window.windowFlags().testFlag(Qt::WindowStaysOnTopHint), "main window should stay on top");
+    require(!window.windowFlags().testFlag(Qt::WindowMaximizeButtonHint), "main window should hide maximize button");
+    require(!window.windowIcon().isNull(), "main window should expose the app icon");
+    require(window.centralWidget() != nullptr, "main window should create a central surface");
+    require(window.centralWidget()->objectName() == QStringLiteral("mainWindowSurface"),
+            "main window should tag the styled central surface");
     require(window.findChildren<QGroupBox*>().size() == 3, "main window should only expose three control groups");
     require(findButtonByText(window, QStringLiteral("开始")) == nullptr, "start button should be removed");
     require(findButtonByText(window, QStringLiteral("停止")) == nullptr, "stop button should be removed");

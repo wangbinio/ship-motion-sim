@@ -5,11 +5,13 @@
 
 #include <QApplication>
 #include <QDir>
+#include <QIcon>
 
 #include "gui/main_window.h"
 
 namespace {
 
+// 解析命令行配置路径，未显式传入时回退到默认 XML 配置。
 std::string parseConfigPath(int argc, char* argv[]) {
     std::string config_path;
     for (int i = 1; i < argc; ++i) {
@@ -35,6 +37,7 @@ std::string parseConfigPath(int argc, char* argv[]) {
 int main(int argc, char* argv[]) {
     try {
         QApplication app(argc, argv);
+        QApplication::setWindowIcon(QIcon(QStringLiteral(":/app.png")));
         ship_sim::MainWindow window(parseConfigPath(argc, argv));
         window.show();
         return app.exec();

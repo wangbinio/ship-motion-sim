@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
 
 find_package(Qt5 REQUIRED COMPONENTS Core Widgets Xml)
 
@@ -26,6 +27,7 @@ target_link_libraries(ship_motion_sim_lib PUBLIC Qt5::Core Qt5::Xml)
 add_library(
     ship_motion_gui_lib
     src/gui/main_window.cpp
+    src/res/app_resources.qrc
 )
 
 target_include_directories(ship_motion_gui_lib PUBLIC src)

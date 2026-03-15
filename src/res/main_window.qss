@@ -1,0 +1,59 @@
+QMainWindow {
+    background: transparent;
+}
+
+QWidget#mainWindowSurface {
+    background-color: rgba(188, 228, 255, 10);
+    border: 1px solid rgba(150, 208, 245, 100);
+    border-radius: 8px;
+}
+
+QGroupBox {
+    margin-top: 16px;
+    padding: 10px 4px 4px 4px;
+    border: 1px solid rgba(132, 190, 236, 180);
+    border-radius: 6px;
+    /* background-color: rgba(72, 136, 192, 28); */
+    color: rgb(232, 247, 255);
+    font-size: 18px;
+    font-weight: 600;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    /* left: 8px; */
+    /* top: 8px; */
+    /* padding: 0px 0px; */
+    font-size: 20px;
+    color: rgba(18, 30, 42, 0.9);
+}
+
+QPushButton {
+    min-height: 40px;
+    padding: 4px;
+    border: 1px solid rgba(134, 196, 242, 120);
+    border-radius: 7px;
+    background-color: rgba(21, 134, 226, 150);
+    /* font-size: 18px; */
+    /* font-weight: 500; */
+    color: rgb(18, 30, 42);
+}
+
+QPushButton:hover {
+    background-color: rgba(18, 207, 46, 120);
+    /* border-color: rgba(168, 220, 255, 220); */
+}
+
+/* QPushButton:pressed {
+    background-color: rgba(84, 163, 225, 220);
+    border-color: rgba(230, 246, 255, 235);
+    color: rgb(18, 30, 42);
+} */
+
+QPushButton:checked {
+    background-color: rgb(18, 207, 46);
+    /* border-color: rgb(234, 246, 255); */
+    color: rgb(18, 30, 42);
+    /* font-weight: 600; */
+}

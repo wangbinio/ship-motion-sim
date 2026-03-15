@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/">
+        <file>app.png</file>
+        <file>main_window.qss</file>
+    </qresource>
+</RCC>
