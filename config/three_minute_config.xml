@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <shipMotionConfig version="2">
   <simulation dt_s="1.0" duration_s="180.0" earth_radius_m="6378137.0"/>
-  <model nomoto_T_s="10.0" nomoto_K="0.08" speed_tau_s="8.0" rudder_limit_deg="35.0"/>
+  <model nomoto_T_s="10.0" nomoto_K="0.08" rudder_full_effect_speed_mps="1.0" speed_tau_s="8.0" rudder_limit_deg="35.0"/>
   <initialState lat_deg="24.0" lon_deg="120.0" heading_deg="0.0" speed_mps="0.0"/>
   <analysis default_output_dir="output/scenarios" auto_plot="true" plot_script="scripts/plot_simulation.py"/>
   <enginePanels>
