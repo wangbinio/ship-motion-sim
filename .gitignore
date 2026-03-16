@@ -3,3 +3,4 @@
 /output/
 /scripts/__pycache__/
 /Logs/
+/tests/baselines/
