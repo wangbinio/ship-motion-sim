@@ -111,6 +111,46 @@ void testYawResponse() {
     require(previous_heading > 0.1, "heading should change noticeably");
 }
 
+void testHeadingZeroMovesNorth() {
+    ship_sim::SimpleNomotoShipModel model(makeSimulationConfig());
+    model.setEngineOrderMapping({{"ahead3", 3.0}});
+    model.setInitialState(ship_sim::InitialState {24.0, 120.0, 0.0, 0.0});
+    model.setEngineCommand("ahead3");
+
+    ship_sim::ShipState state {};
+    for (int i = 0; i < 100; ++i) {
+        model.step(0.1);
+        state = model.getState((i + 1) * 0.1);
+    }
+
+    require(state.lat_deg > 24.0, "heading 0 should move north and increase latitude");
+    require(std::abs(state.lon_deg - 120.0) < 1e-4, "heading 0 without rudder should keep longitude nearly unchanged");
+}
+
+void testRudderDirectionMatchesTrackDirection() {
+    auto run_turn = [](const double rudder_deg) {
+        ship_sim::SimpleNomotoShipModel model(makeSimulationConfig());
+        model.setEngineOrderMapping({{"ahead3", 3.0}});
+        model.setInitialState(ship_sim::InitialState {24.0, 120.0, 0.0, 0.0});
+        model.setEngineCommand("ahead3");
+        model.setRudderCommandDeg(rudder_deg);
+
+        ship_sim::ShipState state {};
+        for (int i = 0; i < 120; ++i) {
+            model.step(0.1);
+            state = model.getState((i + 1) * 0.1);
+        }
+        return state;
+    };
+
+    const ship_sim::ShipState starboard_state = run_turn(10.0);
+    const ship_sim::ShipState port_state = run_turn(-10.0);
+
+    require(starboard_state.heading_deg > 0.1, "starboard rudder should increase navigational heading");
+    require(starboard_state.lon_deg > 120.0, "starboard rudder should bend track to the east");
+    require(port_state.lon_deg < 120.0, "port rudder should bend track to the west");
+}
+
 void testGeoConversion() {
     const auto result = ship_sim::math::localOffsetToLatLonDeg(
         24.0,
@@ -215,6 +255,8 @@ int main(int argc, char* argv[]) {
     try {
         testSpeedResponse();
         testYawResponse();
+        testHeadingZeroMovesNorth();
+        testRudderDirectionMatchesTrackDirection();
         testGeoConversion();
         testXmlConfigLoadDefaultConfig();
         testSimulationSessionTracksCurrentCommands();

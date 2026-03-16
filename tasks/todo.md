@@ -1,12 +1,13 @@
 # 本次任务计划
 
-- [x] 确认本轮仅撤销自绘标题栏相关改动，保留现有内容区样式与资源加载方式
-- [x] 回退 `MainWindow`、`main_window.qss` 和测试中的自绘标题栏逻辑，恢复系统标题栏
-- [x] 执行构建验证并回写 Review
+- [x] 检查地图航迹左右反向问题，确认模型内部航向角与局部东-北坐标约定不一致
+- [x] 修正 `SimpleNomotoShipModel` 的航向更新与位置积分语义，使其符合海图/航海约定
+- [x] 补充并更新测试，覆盖右舵/左舵对应的航迹横向变化
+- [x] 执行构建与测试验证，并回写 Review
 
 # Review
 
-- 已从 [main_window.cpp](/home/sun/projects/cpp/ship-motion-sim/src/gui/main_window.cpp:75) 回退无边框与自绘标题栏逻辑，窗口重新使用系统标题栏，同时保留置顶、透明背景、图标和现有内容区布局。
-- 已从 [main_window.qss](/home/sun/projects/cpp/ship-motion-sim/src/res/main_window.qss:1) 移除 `titleBar`、`titleLabel` 和标题栏按钮样式块，未改动你手调后的内容区样式规则。
-- 已将 [test_main.cpp](/home/sun/projects/cpp/ship-motion-sim/tests/test_main.cpp:182) 的 GUI 冒烟测试恢复为系统标题栏断言，不再检查无边框和自绘标题栏控件。
-- 已执行 `cmake --build build -j4` 与 `ctest --test-dir build --output-on-failure`，结果通过。
+- 已在 [simple_nomoto_ship_model.cpp](/home/sun/projects/cpp/ship-motion-sim/src/model/simple_nomoto_ship_model.cpp) 将位置积分改为航海语义下的东-北分解：`0°` 指北、顺时针为正，因此东向位移使用 `sin(heading)`，北向位移使用 `cos(heading)`，修复了地图上左右转向与航迹横向偏移相反的问题。
+- 已在 [simple_nomoto_ship_model.h](/home/sun/projects/cpp/ship-motion-sim/src/model/simple_nomoto_ship_model.h) 为函数声明补充中文注释，明确舵令、车令、航向和局部坐标的职责，便于后续 review。
+- 已在 [test_main.cpp](/home/sun/projects/cpp/ship-motion-sim/tests/test_main.cpp) 新增 `heading=0` 直航向北、右舵向东偏、左舵向西偏三项断言，锁定本次修复的坐标系约定。
+- 已执行 `cmake --build build -j4`、`ctest --test-dir build --output-on-failure` 和 `./build/ship_motion_sim_tests`，结果通过。

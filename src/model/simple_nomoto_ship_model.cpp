@@ -100,8 +100,10 @@ void SimpleNomotoShipModel::updateHeading(double dt_s) {
 }
 
 void SimpleNomotoShipModel::updatePosition(double dt_s) {
-    x_m_ += speed_mps_ * std::cos(heading_rad_) * dt_s;
-    y_m_ += speed_mps_ * std::sin(heading_rad_) * dt_s;
+    // 内部航向采用航海约定：0 度指北、顺时针为正。
+    // 局部位置仍使用东-北坐标，因此东向分量取 sin，北向分量取 cos。
+    x_m_ += speed_mps_ * std::sin(heading_rad_) * dt_s;
+    y_m_ += speed_mps_ * std::cos(heading_rad_) * dt_s;
 }
 
 double SimpleNomotoShipModel::clampRudderRad(double rudder_rad) const {
