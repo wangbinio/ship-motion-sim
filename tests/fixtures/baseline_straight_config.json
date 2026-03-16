@@ -5,6 +5,7 @@
     "earth_radius_m": 6378137.0,
     "nomoto_T_s": 10.0,
     "nomoto_K": 0.08,
+    "rudder_full_effect_speed_mps": 1.0,
     "speed_tau_s": 8.0,
     "rudder_limit_deg": 35.0
   },

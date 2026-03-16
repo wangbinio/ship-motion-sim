@@ -34,7 +34,7 @@ void require(bool condition, const std::string& message) {
 }
 
 ship_sim::SimulationConfig makeSimulationConfig() {
-    return ship_sim::SimulationConfig {0.1, 20.0, 6378137.0, 10.0, 0.08, 8.0, 35.0};
+    return ship_sim::SimulationConfig {0.1, 20.0, 6378137.0, 10.0, 0.08, 1.0, 8.0, 35.0};
 }
 
 ship_sim::SessionConfig makeSessionConfig() {
@@ -159,6 +159,48 @@ void testRudderDirectionMatchesTrackDirection() {
     require(port_state.lon_deg < 120.0, "port rudder should bend track to the west");
 }
 
+void testZeroSpeedRudderDoesNotCreateTurn() {
+    ship_sim::SimpleNomotoShipModel model(makeSimulationConfig());
+    model.setEngineOrderMapping({{"stop", 0.0}});
+    model.setInitialState(ship_sim::InitialState {24.0, 120.0, 0.0, 0.0});
+    model.setEngineCommand("stop");
+    model.setRudderCommandDeg(10.0);
+
+    ship_sim::ShipState state {};
+    for (int i = 0; i < 100; ++i) {
+        model.step(0.1);
+        state = model.getState((i + 1) * 0.1);
+    }
+
+    require(std::abs(state.speed_mps) < 1e-9, "stop command should keep speed near zero");
+    require(std::abs(state.yaw_rate_deg_s) < 1e-9, "zero speed rudder should not create yaw rate from rest");
+    require(std::abs(state.heading_deg) < 1e-9, "zero speed rudder should not rotate heading from rest");
+}
+
+void testLowSpeedRudderIsWeakerThanCruise() {
+    auto run_turn = [](const double initial_speed_mps) {
+        ship_sim::SimpleNomotoShipModel model(makeSimulationConfig());
+        model.setEngineOrderMapping({{"hold", initial_speed_mps}});
+        model.setInitialState(ship_sim::InitialState {24.0, 120.0, 0.0, initial_speed_mps});
+        model.setEngineCommand("hold");
+        model.setRudderCommandDeg(10.0);
+
+        ship_sim::ShipState state {};
+        for (int i = 0; i < 50; ++i) {
+            model.step(0.1);
+            state = model.getState((i + 1) * 0.1);
+        }
+        return state;
+    };
+
+    const ship_sim::ShipState low_speed_state = run_turn(0.2);
+    const ship_sim::ShipState cruise_state = run_turn(3.0);
+
+    require(low_speed_state.heading_deg > 0.0, "low speed rudder should still create limited heading change");
+    require(low_speed_state.heading_deg < cruise_state.heading_deg, "low speed heading change should be weaker than cruise");
+    require(low_speed_state.yaw_rate_deg_s < cruise_state.yaw_rate_deg_s, "low speed yaw rate should be weaker than cruise");
+}
+
 void testGeoConversion() {
     const auto result = ship_sim::math::localOffsetToLatLonDeg(
         24.0,
@@ -202,6 +244,10 @@ void testXmlConfigLoaderAndWriter() {
 
     require(loaded_config.engine_orders.size() == source_config.engine_orders.size(), "engine orders should round-trip");
     require(loaded_config.rudder_presets.size() == source_config.rudder_presets.size(), "rudder presets should round-trip");
+    require(
+        std::abs(loaded_config.simulation.rudder_full_effect_speed_mps -
+                 source_config.simulation.rudder_full_effect_speed_mps) < 1e-9,
+        "rudder full effect speed should round-trip");
     require(loaded_config.default_output_dir == source_config.default_output_dir, "output dir should round-trip");
 }
 
@@ -333,6 +379,8 @@ int main(int argc, char* argv[]) {
         testYawResponse();
         testHeadingZeroMovesNorth();
         testRudderDirectionMatchesTrackDirection();
+        testZeroSpeedRudderDoesNotCreateTurn();
+        testLowSpeedRudderIsWeakerThanCruise();
         testGeoConversion();
         testCommandScheduleOrdering();
         testXmlConfigLoaderAndWriter();
