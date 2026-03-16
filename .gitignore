@@ -2,3 +2,5 @@
 /.cache/
 /output/
 /scripts/__pycache__/
+/tests/baselines/
+Logs/
